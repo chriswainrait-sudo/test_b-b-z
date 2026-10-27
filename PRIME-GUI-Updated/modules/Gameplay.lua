@@ -1352,36 +1352,22 @@ end
         if hasBall() then resetDribbleCounters(infinitePatch) end
     end
     local perfectPhysics
+    local perfectDebug = false
+    local lastPerfectNote = -math.huge
     local updatePerfect
-    local function clearPerfect()
+    local function perfectNote(text)
+        if not perfectDebug then return end
+        local now = os.clock()
+        if now - lastPerfectNote < 1.5 then return end
+        lastPerfectNote = now
+        NexusUI:Notify({Title = "Perfect Shot", Content = text, Duration = 4})
+    end
+    local function clearPerfect(reason)
+        if reason then perfectNote(reason) end
         if perfectPhysics then perfectPhysics:Disconnect(); perfectPhysics = nil end
         perfectFlight = nil
         perfectShotLock = nil
     end
-    -- BEGIN PERFECT SHOT BALLISTICS
-    local function shotVelocity(origin, target, gravity, characterDistance)
-        if type(gravity) ~= "number" or gravity <= 0 then return nil end
-        local delta = target - origin
-        local distance = Vector2.new(delta.X, delta.Z).Magnitude
-        local range = characterDistance or distance
-        if type(range) ~= "number" or range ~= range or range < 0 or range == math.huge then return nil end
-        -- Absolute horizontal speed follows range; it is independent of the
-        -- standalone Shot Power multiplier and of the game's previous velocity.
-        local horizontalSpeed = math.max(65, math.min(220, 65 + range * 0.5))
-        local seconds = distance / horizontalSpeed
-        local clearance = math.max(4, math.min(16, range * 0.04))
-        local minimumApex = math.max(origin.Y, target.Y) + clearance
-        local minimumSeconds = (math.sqrt(2 * gravity * (minimumApex - origin.Y))
-            + math.sqrt(2 * gravity * (minimumApex - target.Y))) / gravity
-        seconds = math.max(seconds, minimumSeconds)
-        if seconds <= 0 or seconds ~= seconds or seconds == math.huge then return nil end
-        local launchY = delta.Y / seconds + gravity * seconds * 0.5
-        local aim = Vector3.new(delta.X, launchY * seconds, delta.Z)
-        -- A minimum arc can lower horizontal speed on close shots.
-        local targetSpeed = math.sqrt((distance / seconds)^2 + launchY * launchY)
-        return ApplyShotPowerModifier(aim, nil, targetSpeed), seconds
-    end
-    -- END PERFECT SHOT BALLISTICS
     local function lastHolder()
         local controller = controllers.BallController
         if controller and type(controller.GetLastPlayerToPossessBall) == "function" then
@@ -1389,91 +1375,88 @@ end
             if ok then return player end
         end
     end
-    -- Armed by the server's own Throw echo (the game reacts to the same event),
-    -- so it needs no patch on Fire and no ball possession at that instant.
-    local function armPerfect()
+    -- Armed by the server's own Throw echo (the game reacts to the same event), so it needs
+    -- no patch on Fire. The game has just thrown the ball towards the server's destination;
+    -- we keep its exact flight time and only move the landing point to the hoop, so the
+    -- arc has the same speed profile as any normal shot instead of a different one.
+    local function armPerfect(destination)
         clearPerfect()
         local ball = GetCurrentBall()
         local hoop = targetHoop()
-        if not ball or not hoop or not playing() or lastHolder() ~= LocalPlayer then return end
+        if not ball then perfectNote("мяч не найден") return end
+        if not hoop then perfectNote("кольцо не найдено") return end
+        if not playing() then perfectNote("раунд не в состоянии Playing") return end
+        if lastHolder() ~= LocalPlayer then return end
         local now = os.clock()
-        local _, root = localParts()
         perfectFlight = {ball = ball, hoop = hoop, character = LocalPlayer.Character,
-            started = now, deadline = now + 2, confirmed = true,
-            characterDistance = root and (hoop.Position - root.Position).Magnitude or nil}
+            destination = destination, started = now, deadline = now + 2}
         perfectShotLock = {ball = ball, expires = perfectFlight.deadline}
-        -- Only this pending/released shot owns a physics callback. No idle
-        -- correction loop and no Heartbeat fallback on unsupported runtimes.
+        -- Only this released shot owns a physics callback; no idle loop.
         local ok, connection = pcall(function()
-            return RunService.PreSimulation:Connect(function(dt)
-                local success = pcall(updatePerfect, dt)
-                if not success then clearPerfect() end
+            return RunService.PreSimulation:Connect(function()
+                if not pcall(updatePerfect) then clearPerfect("ошибка расчёта") end
             end)
         end)
-        if ok then perfectPhysics = connection else clearPerfect() end
+        if not ok then clearPerfect() return end
+        perfectPhysics = connection
+        pcall(updatePerfect)
     end
-    updatePerfect = function(dt)
+    updatePerfect = function()
         local flight = perfectFlight
         if not flight then return end
         local ball, controller = flight.ball, controllers.BallController
         local character, _, humanoid = localParts()
         local now = os.clock()
-        if not flight.launched then
-            if perfectShotLock then perfectShotLock.expires = flight.deadline end
-            if now > flight.deadline then clearPerfect(); return end
+        if now > flight.deadline then
+            clearPerfect(not flight.arrival and "игра не задала мячу скорость" or nil)
+            return
         end
         if not alive or not config.PerfectShot or not playing() or character ~= flight.character
             or not humanoid or humanoid.Health <= 0 or GetCurrentBall() ~= ball or not ball.Parent
             or not flight.hoop.Parent or targetHoop() ~= flight.hoop or not controller then clearPerfect(); return end
-        if not flight.confirmed then
-            return
-        end
         local ok, owner = pcall(controller.GetPlayerPossessingBall, controller)
-        if not ok or (owner and owner ~= LocalPlayer) then clearPerfect(); return end
-        if owner == LocalPlayer then
-            if flight.launched or now > flight.deadline then clearPerfect() end
-            return
+        if not ok or (owner and owner ~= LocalPlayer) then clearPerfect("мяч подобрал другой игрок"); return end
+        if ball.Anchored then return end
+        local velocity, position = ball.AssemblyLinearVelocity, ball.Position
+        if not flight.arrival then
+            -- Wait for the game's own throw velocity, then read its flight time from it.
+            local speed = Vector2.new(velocity.X, velocity.Z).Magnitude
+            if speed < 3 then return end
+            local seconds = Vector2.new(flight.destination.X - position.X, flight.destination.Z - position.Z).Magnitude / speed
+            if not (seconds > 0.1 and seconds < 3) then
+                seconds = math.clamp(math.log(0.75 + 0.045 * (flight.hoop.Position - position).Magnitude), 0.3, 2)
+            end
+            flight.arrival = now + seconds
+            flight.deadline = flight.arrival + 0.4
+            perfectShotLock = {ball = ball, expires = flight.deadline}
         end
-        local success, controlled = pcall(controller.LocalPlayerIsBallNetworkOwner, controller)
-        if not success or not controlled or ball.Anchored then
-            if flight.launched then
-                flight.pausedAt = flight.pausedAt or now
-                local grace = 0.15
-                if now - flight.pausedAt > grace then clearPerfect() end
+        local remaining = flight.arrival - now
+        if remaining <= 0.08 then
+            if not flight.reported then
+                flight.reported = true
+                perfectNote(flight.wrote and "поправки применены до конца полёта"
+                    or flight.applied and "траектория совпала, поправки не понадобились"
+                    or "мяч летел сам, поправки не применялись")
             end
             return
         end
-        if flight.pausedAt then
-            -- Resume from the actual ball position.
-            flight.pausedAt, flight.launched = nil, nil
-            flight.deadline = now + 2
-        end
-        if not flight.launched then
-            if flight.firstLaunch and now - flight.firstLaunch > 8 then clearPerfect(); return end
-            local _, root = localParts()
-            local range = root and (flight.hoop.Position - root.Position).Magnitude or flight.characterDistance
-            local velocity, duration = shotVelocity(ball.Position, flight.hoop.Position, Workspace.Gravity, range)
-            if not velocity then clearPerfect(); return end
-            flight.origin, flight.velocity, flight.duration = ball.Position, velocity, duration
-            flight.gravity, flight.launched = Workspace.Gravity, now
-            flight.firstLaunch = flight.firstLaunch or now
-            perfectShotLock = {ball = ball, expires = now + duration + 0.15}
-            ball.AssemblyLinearVelocity = velocity
+        -- The first moments are always applied: the owner flag replicates with a delay.
+        -- Afterwards a ball simulated by another client cannot be steered from here.
+        local success, controlled = pcall(controller.LocalPlayerIsBallNetworkOwner, controller)
+        if success and controlled == true then
+            flight.lostAt = nil
+        elseif now - flight.started > 0.35 then
+            flight.lostAt = flight.lostAt or now
+            if now - flight.lostAt > 0.3 then clearPerfect("мячом управляет другой клиент (нет сетевого владения)") end
             return
         end
-        local elapsed = now - flight.launched
-        if elapsed > flight.duration + 0.1 or Workspace.Gravity ~= flight.gravity then clearPerfect(); return end
-        -- Follow the calculated descending arc; compensate for local drag and
-        -- small integration errors instead of multiplying speed every 0.5s.
-        local gravity = Vector3.new(0, -flight.gravity, 0)
-        local expected = flight.origin + flight.velocity * elapsed + gravity * (elapsed * elapsed * 0.5)
-        local error = expected - ball.Position
-        local positionTolerance = 25
-        if error.Magnitude > positionTolerance then clearPerfect(); return end
-        local correction = error * 8
-        if correction.Magnitude > 35 then correction = correction.Unit * 35 end
-        ball.AssemblyLinearVelocity = flight.velocity + gravity * elapsed + correction
-            - gravity * (math.min(dt or 1 / 60, 0.05) * 0.5)
+        -- Ballistic solution to the hoop for the remaining time. On the planned path this
+        -- equals the current velocity, so it only acts when the ball deviates.
+        local ideal = (flight.hoop.Position - position) / remaining + Vector3.new(0, Workspace.Gravity * remaining * 0.5, 0)
+        local change = (ideal - velocity).Magnitude
+        if change > (flight.applied and 160 or 110) then clearPerfect("поправка траектории слишком большая"); return end
+        if change > 0.35 then ball.AssemblyLinearVelocity = ideal; flight.wrote = true end
+        flight.applied = true
     end
     local function removeSilentAim()
         local patch = throwPatch
@@ -1515,7 +1498,7 @@ end
         throwPatch = patch
     end
     local perfectEcho, perfectEchoSignal
-    local lastShotAt = -math.huge
+    local lastShotAt, lastHadBallAt, lastAbilityAt = -math.huge, -math.huge, -math.huge
     local function echoConnected()
         if not perfectEcho then return false end
         local ok, value = pcall(function() return perfectEcho.Connected end)
@@ -1542,10 +1525,16 @@ end
         local ok, connection = pcall(signal.Connect, signal, function(destination)
             if typeof(destination) ~= "Vector3" then return end
             task.defer(function()
-                if not (alive and config.PerfectShot) or lastHolder() ~= LocalPlayer
-                    or os.clock() - lastShotAt >= 1.5 then return end
+                if not (alive and config.PerfectShot) or lastHolder() ~= LocalPlayer then return end
+                -- Our own shot: the shot state was seen just before the echo, or we held the
+                -- ball a moment ago and no ability was running (abilities throw the ball too).
+                local now = os.clock()
+                if not (now - lastShotAt < 2.5 or (now - lastHadBallAt < 2.5 and now - lastAbilityAt > 1.5)) then
+                    perfectNote("бросок не распознан")
+                    return
+                end
                 lastShotAt = -math.huge
-                pcall(armPerfect)
+                pcall(armPerfect, destination)
             end)
         end)
         if ok and connection then perfectEcho, perfectEchoSignal = connection, signal end
@@ -1753,6 +1742,8 @@ end
             if config.PerfectShot then
                 local state = states()
                 if (state.Shooting or state.AimAssist) and not state.Dunking and not state.Ability then lastShotAt = now end
+                if state.Ability then lastAbilityAt = now end
+                if values().HasBall == true then lastHadBallAt = now end
             end
             if now - lastThreatCheck < 0.04 then return end
             lastThreatCheck = now
@@ -1790,6 +1781,8 @@ end
         Tabs.Main:AddToggle(key, {Title = title, Description = description, ShowDescription = key == "PerfectShot", Default = false,
             Callback = function(value) setFeature(key, value) end})
     end
+    Tabs.Main:AddToggle("PerfectShotDebug", {Title = "Perfect Shot Debug", Description = "Shows the reason when Perfect Shot stops",
+        ShowDescription = false, Default = false, Callback = function(value) perfectDebug = value == true end})
 -- No Steal Fall: scoped to the local character's ordinary Steal animation.
 do
     local enabled, heartbeat, character, humanoid, animator
