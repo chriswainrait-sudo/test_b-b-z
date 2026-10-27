@@ -1122,7 +1122,6 @@ end
     local config = {StealDanger = false, InfiniteDribble = false, AutoDribble = false,
         SilentAimShot = false, AutoDunk = false, PerfectShot = false}
     local controllers, connections, roundConnections = {}, {}, {}
-    local cachedKnit, cachedKnitModule
     local alive = false
     local heartbeat, discoveryTask, dangerGui, dangerLabel
     local infinitePatch, throwPatch
@@ -1242,7 +1241,7 @@ end
         return Workspace:Raycast(origin, delta, params) == nil
     end
     local function findThreats(character, root)
-        local danger, stealThreat
+        local danger
         local bestDanger = math.huge
         for _, player in ipairs(Players:GetPlayers()) do
             if opponent(player) then
@@ -1262,16 +1261,11 @@ end
                             bestDanger = score
                             danger = {player = player, distance = distance, incoming = incoming}
                         end
-                        -- Auto Dribble ONLY reacts to an opposing team's active
-                        -- ordinary Steal animation directed toward the local player.
-                        if incoming and (not stealThreat or distance < stealThreat.distance) then
-                            stealThreat = {player = player, distance = distance}
-                        end
                     end
                 end
             end
         end
-        return danger, stealThreat
+        return danger
     end
     local function makeDangerGui()
         if dangerGui and dangerGui.Parent then return end
@@ -1543,12 +1537,16 @@ end
         if not signal or type(signal.Connect) ~= "function" then return end
         if perfectEchoSignal == signal and echoConnected() then return end
         if perfectEcho then pcall(function() perfectEcho:Disconnect() end) end
+        -- The callback only hands off: all work runs in a fresh deferred thread,
+        -- after the game's own handler for the same event has finished.
         local ok, connection = pcall(signal.Connect, signal, function(destination)
-            if alive and config.PerfectShot and typeof(destination) == "Vector3"
-                and os.clock() - lastShotAt < 1.5 then
+            if typeof(destination) ~= "Vector3" then return end
+            task.defer(function()
+                if not (alive and config.PerfectShot) or lastHolder() ~= LocalPlayer
+                    or os.clock() - lastShotAt >= 1.5 then return end
                 lastShotAt = -math.huge
-                armPerfect()
-            end
+                pcall(armPerfect)
+            end)
         end)
         if ok and connection then perfectEcho, perfectEchoSignal = connection, signal end
     end
@@ -1556,18 +1554,16 @@ end
         if discoveryTask or not alive then return end
         discoveryTask = task.defer(function()
             local found = {}
-            local packages = ReplicatedStorage:FindFirstChild("Packages")
-            local knitModule = packages and packages:FindFirstChild("Knit")
-            if knitModule and (not cachedKnit or cachedKnitModule ~= knitModule) then
-                local ok, knit = pcall(require, knitModule)
-                if ok and type(knit) == "table" and type(knit.GetController) == "function" then
-                    cachedKnit, cachedKnitModule = knit, knitModule
-                end
-            end
-            if cachedKnit then
+            -- Same pattern the game itself uses: require its already-loaded controller
+            -- modules. No Knit registry call, and only once the round has started.
+            local folder = ReplicatedStorage:FindFirstChild("Controllers")
+            if folder and LocalPlayer.Character and ReplicatedStorage:FindFirstChild("GameValues") then
                 for _, name in ipairs({"BallController", "MovementController", "Network", "AbilityController"}) do
-                    local ok, object = pcall(cachedKnit.GetController, name)
-                    if ok and type(object) == "table" then found[name] = object end
+                    local module = folder:FindFirstChild(name)
+                    if module and module:IsA("ModuleScript") then
+                        local ok, object = pcall(require, module)
+                        if ok and type(object) == "table" then found[name] = object end
+                    end
                 end
             end
             if (not found.BallController or not found.MovementController or not found.Network or not found.AbilityController)
@@ -1626,12 +1622,61 @@ end
         end)
         return true
     end
+    -- AutoDribble: the server rebroadcasts every Steal as (character, targetCFrame) as soon as it
+    -- is received, before the animation replicates. The lunge segment (stealer -> targetCFrame)
+    -- tells us whether it is aimed at us; dribble fires in the same frame.
+    local stealEcho, stealEchoSignal
+    local function removeStealHook()
+        if stealEcho then pcall(function() stealEcho:Disconnect() end) end
+        stealEcho, stealEchoSignal = nil, nil
+    end
+    local function onStealSignal(character, target)
+        if not (alive and config.AutoDribble) or typeof(character) ~= "Instance" then return end
+        local _, root, humanoid = localParts()
+        local enemyRoot = character:FindFirstChild("HumanoidRootPart")
+        local player = Players:GetPlayerFromCharacter(character)
+        if not root or not enemyRoot or not player or not opponent(player) then return end
+        if not playing() or not hasBall() or not actionAllowed(root, humanoid) then return end
+        local from = Vector2.new(enemyRoot.Position.X, enemyRoot.Position.Z)
+        local lunge = Vector2.new(target.X, target.Z) - from
+        local toMe = Vector2.new(root.Position.X, root.Position.Z) - from
+        local length = lunge:Dot(lunge)
+        local along = length > 0 and math.clamp(toMe:Dot(lunge) / length, 0, 1) or 0
+        if (toMe - lunge * along).Magnitude > 8 then return end
+        local ball = controllers.BallController
+        local ability = controllers.AbilityController
+        if ball and type(ball.DribbleDB) == "number" and ball.DribbleDB <= tick()
+            and not (ability and ability.InPostForm) and runAction("Dribble") then
+            lastDribble = os.clock()
+        end
+    end
+    local function updateStealHook()
+        if not config.AutoDribble then
+            if stealEcho then removeStealHook() end
+            return
+        end
+        local ability = controllers.AbilityController
+        local service = ability and ability.BallService
+        local signal = service and service.Steal
+        if not signal or type(signal.Connect) ~= "function" then return end
+        if stealEchoSignal == signal and stealEcho then
+            local ok, connected = pcall(function() return stealEcho.Connected end)
+            if ok and connected ~= false then return end
+        end
+        removeStealHook()
+        local ok, connection = pcall(signal.Connect, signal, function(character, target)
+            if typeof(target) ~= "CFrame" then return end
+            task.defer(onStealSignal, character, target.Position)
+        end)
+        if ok and connection then stealEcho, stealEchoSignal = connection, signal end
+    end
     local function resetRound()
         -- Round transitions can replace controllers, signals or their Fire method.
         -- Keep the toggles enabled, but rebuild their runtime bindings.
         if discoveryTask then pcall(task.cancel, discoveryTask) discoveryTask = nil end
         removeSilentAim()
         removePerfectHook()
+        removeStealHook()
         table.clear(controllers)
         actionEpoch = actionEpoch + 1
         actionBusy = false
@@ -1675,6 +1720,7 @@ end
         removeInfinite()
         removeSilentAim()
         removePerfectHook()
+        removeStealHook()
         removeDangerGui()
         table.clear(controllers)
         table.clear(notified)
@@ -1703,6 +1749,7 @@ end
             updateSilentAim()
             updateInfinite()
             updatePerfectHook()
+            updateStealHook()
             if config.PerfectShot then
                 local state = states()
                 if (state.Shooting or state.AimAssist) and not state.Dunking and not state.Ability then lastShotAt = now end
@@ -1714,18 +1761,7 @@ end
                 updateDanger(nil)
                 return
             end
-            local danger, stealThreat
-            if config.StealDanger or config.AutoDribble then danger, stealThreat = findThreats(character, root) end
-            updateDanger(danger)
-            if not actionAllowed(root, humanoid) then return end
-            if config.AutoDribble and stealThreat and now - lastDribble >= 0.72
-                and humanoid.FloorMaterial ~= Enum.Material.Air then
-                local ball = controllers.BallController
-                if ball and type(ball.DribbleDB) == "number" and ball.DribbleDB <= tick()
-                    and not (controllers.AbilityController and controllers.AbilityController.InPostForm) then
-                    if runAction("Dribble") then lastDribble = now; return end
-                end
-            end
+            updateDanger(config.StealDanger and findThreats(character, root) or nil)
         end)
     end
     local function setFeature(key, value)
@@ -1744,7 +1780,7 @@ end
     local controls = {
         {"StealDanger", "Steal Danger", "Warns about nearby enemies and incoming Steal animations"},
         {"InfiniteDribble", "Infinite Dribble", "Unlimited local Dribble uses with no series limit or cooldown"},
-        {"AutoDribble", "Auto Dribble", "Reacts only to an opposing player's Steal animation directed at you"},
+        {"AutoDribble", "Auto Dribble", "Dribbles the moment an opposing player's Steal lunge is aimed at you"},
         {"SilentAimShot", "Silent Aim", "Aims ordinary shot releases at your scoring hoop without moving the camera"},
         {"PerfectShot", "Perfect Shot", "Hold the ball for about 5 seconds before shooting for this feature to work."},
         {"AutoDunk", "Auto Dunk", "Activates the game Dunk button in range; no keyboard input or module calls"},
