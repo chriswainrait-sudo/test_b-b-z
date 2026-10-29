@@ -1120,7 +1120,8 @@ do
 end
 
     local config = {StealDanger = false, InfiniteDribble = false, AutoDribble = false,
-        SilentAimShot = false, AutoDunk = false, PerfectShot = false}
+        SilentAimShot = false, AutoDunk = false, PerfectShot = false,
+        ShotTrajectory = false, ShotArcControl = false, QuickRelease = false}
     local controllers, connections, roundConnections = {}, {}, {}
     local alive = false
     local heartbeat, discoveryTask, dangerGui, dangerLabel
@@ -1352,9 +1353,13 @@ end
         if hasBall() then resetDribbleCounters(infinitePatch) end
     end
     local psReq, psSignal, psNext = nil, nil, 0
+    local shotArcHeight = 10
+    local quickEpoch, quickPending, quickSkip = 0, false, 0
     local psHooks = {}
     local function clearPerfect()
         psReq, perfectShotLock = nil, nil
+        quickEpoch = quickEpoch + 1
+        quickPending, quickSkip = false, 0
     end
     local function removePerfectHook()
         clearPerfect()
@@ -1374,7 +1379,8 @@ end
         if g <= 0 then return end
         local dist = Vector2.new(delta.X, delta.Z).Magnitude
         local t = dist / math.clamp(65 + dist * 0.5, 65, 220)
-        local apex = math.max(ball.Position.Y, target.Y) + math.clamp(dist * 0.04, 3, 16)
+        local apex = math.max(ball.Position.Y, target.Y)
+            + (config.ShotArcControl and shotArcHeight or math.clamp(dist * 0.04, 3, 16))
         t = math.max(t, (math.sqrt(2 * g * (apex - ball.Position.Y))
             + math.sqrt(2 * g * (apex - target.Y))) / g)
         if t <= 0 then return end
@@ -1384,7 +1390,7 @@ end
     local function psWrap(fn)
         return function(destination, ...)
             local r = psReq
-            local valid = alive and config.PerfectShot and r and typeof(destination) == "Vector3"
+            local valid = alive and (config.PerfectShot or config.ShotArcControl) and r and typeof(destination) == "Vector3"
                 and os.clock() <= r.expires and playing() and LocalPlayer.Character == r.char
                 and GetCurrentBall() == r.ball and targetHoop() == r.hoop
                 and r.ball.Parent and r.hoop.Parent
@@ -1397,9 +1403,9 @@ end
             end
             if not valid then return fn(destination, ...) end
             psReq = nil
-            local target = r.hoop.Position
+            local target = config.PerfectShot and r.hoop.Position or destination
             local result = table.pack(fn(target, ...))
-            if alive and config.PerfectShot and GetCurrentBall() == r.ball
+            if alive and (config.PerfectShot or config.ShotArcControl) and GetCurrentBall() == r.ball
                 and LocalPlayer.Character == r.char and not r.ball.Anchored then
                 local ok, velocity, seconds = pcall(psVelocity, r.ball, target)
                 if ok and velocity then
@@ -1427,7 +1433,7 @@ end
         if ok then return value end
     end
     local function updatePerfectHook()
-        if not config.PerfectShot then
+        if not (config.PerfectShot or config.ShotArcControl) then
             if psSignal or #psHooks > 0 then removePerfectHook() end
             return
         end
@@ -1479,6 +1485,154 @@ end
         end
         if #psHooks > 0 then psSignal = signal end
     end
+    local trajectory, trajectoryAnchor, landingMarker, landingLabel
+    local trajectoryPoints, trajectoryBeams = {}, {}
+    local trajectoryTick = 0
+    local function removeTrajectory()
+        if trajectory then trajectory:Destroy() end
+        trajectory, trajectoryAnchor, landingMarker, landingLabel = nil, nil, nil, nil
+        table.clear(trajectoryPoints)
+        table.clear(trajectoryBeams)
+    end
+    local function hideTrajectory()
+        for _, beam in ipairs(trajectoryBeams) do beam.Enabled = false end
+        if landingMarker then landingMarker.Transparency = 1 end
+        if landingLabel then landingLabel.Enabled = false end
+    end
+    local function makeTrajectory()
+        if trajectory and trajectory.Parent then return end
+        removeTrajectory()
+        trajectory = Instance.new("Folder")
+        trajectory.Name = "PRIME_ShotTrajectory"
+        local function part(name)
+            local x = Instance.new("Part")
+            x.Name, x.Anchored, x.CanCollide = name, true, false
+            x.CanTouch, x.CanQuery, x.CastShadow = false, false, false
+            x.Transparency = 1
+            x.Size = Vector3.new(0.1, 0.1, 0.1)
+            x.Parent = trajectory
+            return x
+        end
+        trajectoryAnchor = part("Arc")
+        for i = 1, 121 do
+            local point = Instance.new("Attachment")
+            point.Parent = trajectoryAnchor
+            trajectoryPoints[i] = point
+            if i > 1 then
+                local beam = Instance.new("Beam")
+                beam.Attachment0, beam.Attachment1 = trajectoryPoints[i - 1], point
+                beam.Width0, beam.Width1 = 0.13, 0.13
+                beam.Color = ColorSequence.new(Color3.fromRGB(65, 220, 255))
+                beam.Transparency = NumberSequence.new(0.15)
+                beam.FaceCamera, beam.LightEmission, beam.Segments = true, 1, 1
+                beam.Enabled = false
+                beam.Parent = trajectoryAnchor
+                trajectoryBeams[i - 1] = beam
+            end
+        end
+        landingMarker = part("Landing")
+        landingMarker.Shape = Enum.PartType.Ball
+        landingMarker.Size = Vector3.new(0.7, 0.7, 0.7)
+        landingMarker.Material = Enum.Material.Neon
+        landingMarker.Color = Color3.fromRGB(255, 195, 65)
+        landingLabel = Instance.new("BillboardGui")
+        landingLabel.Size = UDim2.fromOffset(150, 26)
+        landingLabel.StudsOffsetWorldSpace = Vector3.new(0, 1.2, 0)
+        landingLabel.AlwaysOnTop, landingLabel.Enabled = true, false
+        landingLabel.Parent = landingMarker
+        local text = Instance.new("TextLabel")
+        text.Size, text.BackgroundTransparency = UDim2.fromScale(1, 1), 1
+        text.Text, text.TextSize = "Estimated landing", 14
+        text.Font = Enum.Font.GothamMedium
+        text.TextColor3, text.TextStrokeTransparency = landingMarker.Color, 0.35
+        text.Parent = landingLabel
+        trajectory.Parent = Workspace
+    end
+    local function updateTrajectory(now)
+        if not config.ShotTrajectory then
+            if trajectory then removeTrajectory() end
+            return
+        end
+        if now - trajectoryTick < 0.05 then return end
+        trajectoryTick = now
+        local character, root, humanoid = localParts()
+        local ball, hoop = GetCurrentBall(), targetHoop()
+        if not playing() or not hasBall() or not root or not humanoid or humanoid.Health <= 0
+            or not ball or not hoop or states().Dunking or states().Ability then
+            hideTrajectory()
+            return
+        end
+        local rig = character:FindFirstChild("PlrBall")
+        local anims = rig and rig:FindFirstChild("Anims")
+        local handBall = anims and anims:FindFirstChild("BALL")
+        local origin = handBall and handBall:IsA("BasePart") and handBall.Position or ball.Position
+        local target = hoop.Position
+        if not (config.PerfectShot or config.SilentAimShot) then
+            local facing = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+            if facing.Magnitude < 0.001 then hideTrajectory(); return end
+            local distance = Vector3.new(target.X - origin.X, 0, target.Z - origin.Z).Magnitude
+            target = origin + facing.Unit * distance + Vector3.new(0, target.Y - origin.Y, 0)
+        end
+        local velocity, flight
+        if config.PerfectShot or config.ShotArcControl then
+            velocity, flight = psVelocity({Position = origin}, target)
+        else
+            local delta = target - origin
+            local factor, scale = 0.75, 0.045
+            local cv = values()
+            if (root.Position - hoop.Position).Magnitude <= 30 then
+                factor, scale = 1.35, 0.0455
+            else
+                local tables = ReplicatedStorage:FindFirstChild("Shared")
+                tables = tables and tables:FindFirstChild("Tables")
+                local module = tables and tables:FindFirstChild("ZoneIncreasedShootingSpeed")
+                local zone = LocalPlayer:FindFirstChild("Zone")
+                if cv.InZone and module and zone then
+                    local ok, boosts = pcall(require, module)
+                    if ok and boosts[zone.Value] then factor, scale = 0.5, 0.04 end
+                end
+                if cv.InAwakening and controllers.AbilityController and controllers.AbilityController.ChaosMode then
+                    factor, scale = 0.5, 0.04
+                end
+            end
+            flight = math.log(factor + delta.Magnitude * scale)
+            if flight <= 0.01 then hideTrajectory(); return end
+            velocity = delta / flight + Vector3.new(0, Workspace.Gravity * flight * 0.5, 0)
+        end
+        if not velocity or Workspace.Gravity <= 0 then hideTrajectory(); return end
+        makeTrajectory()
+        hideTrajectory()
+        local params = RaycastParams.new()
+        params.FilterType, params.RespectCanCollide = Enum.RaycastFilterType.Exclude, true
+        local ignored = {trajectory, ball}
+        local hoops = Workspace:FindFirstChild("Hoops")
+        if hoops then ignored[#ignored + 1] = hoops end
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player.Character then ignored[#ignored + 1] = player.Character end
+        end
+        params.FilterDescendantsInstances = ignored
+        local gravity = Vector3.new(0, -Workspace.Gravity, 0)
+        local ground = Workspace:Raycast(origin, Vector3.new(0, -500, 0), params)
+        local floorY = ground and ground.Position.Y or origin.Y - 100
+        local discriminant = velocity.Y * velocity.Y + 2 * Workspace.Gravity * math.max(0, origin.Y - floorY)
+        local duration = math.clamp((velocity.Y + math.sqrt(discriminant)) / Workspace.Gravity + 0.5, 0.5, 8)
+        local previous = origin
+        trajectoryPoints[1].WorldPosition = origin
+        for i = 1, 120 do
+            local t = duration * i / 120
+            local point = origin + velocity * t + gravity * (0.5 * t * t)
+            local hit = Workspace:Raycast(previous, point - previous, params)
+            if hit then point = hit.Position end
+            trajectoryPoints[i + 1].WorldPosition = point
+            trajectoryBeams[i].Enabled = true
+            if hit then
+                landingMarker.Position = point + hit.Normal * 0.35
+                landingMarker.Transparency, landingLabel.Enabled = 0.1, true
+                break
+            end
+            previous = point
+        end
+    end
     local function removeSilentAim()
         local patch = throwPatch
         throwPatch = nil
@@ -1489,7 +1643,7 @@ end
     local function updateSilentAim()
         local ability = controllers.AbilityController
         local signal = ability and ability.BallService and ability.BallService.Throw
-        if not (config.SilentAimShot or config.PerfectShot) or not mutable(signal) then removeSilentAim() return end
+        if not (config.SilentAimShot or config.PerfectShot or config.ShotArcControl or config.QuickRelease) or not mutable(signal) then removeSilentAim() return end
         if throwPatch and throwPatch.object == signal and rawget(signal, "Fire") == throwPatch.wrapper then return end
         removeSilentAim()
         local original = signal.Fire
@@ -1497,18 +1651,43 @@ end
         local patch = {object = signal, rawOriginal = rawget(signal, "Fire")}
         patch.wrapper = function(self, ...)
             local args, s = table.pack(...), states()
-            if alive and self == signal and (config.SilentAimShot or config.PerfectShot)
+            if self == signal and typeof(args[1]) == "Vector2" and args[2] ~= true and quickSkip > os.clock() then
+                quickSkip = 0
+                return
+            end
+            if alive and config.QuickRelease and self == signal and args[1] == nil and args[2] == true
+                and playing() and hasBall() and not s.Dunking and not s.Ability then
+                quickEpoch = quickEpoch + 1
+                local epoch, character = quickEpoch, LocalPlayer.Character
+                quickSkip = 0
+                quickPending = true
+                task.delay(0.26, function()
+                    if epoch ~= quickEpoch or not quickPending then return end
+                    quickPending = false
+                    local current = states()
+                    local char, root = localParts()
+                    if not alive or not config.QuickRelease or ScriptUnloaded or char ~= character
+                        or not root or not playing() or not hasBall() or current.PumpFake
+                        or current.Dunking or current.Ability or not current.Shooting then return end
+                    local look = root.CFrame.LookVector
+                    patch.wrapper(signal, Vector2.new(look.X, look.Z), nil, false)
+                    quickSkip = os.clock() + 0.85
+                end)
+            elseif self == signal and typeof(args[1]) == "Vector2" and args[2] ~= true then
+                quickPending = false
+            end
+            if alive and self == signal and (config.SilentAimShot or config.PerfectShot or config.ShotArcControl)
                 and typeof(args[1]) == "Vector2" and args[2] ~= true and not s.Dunking
                 and not s.Ability and not s.PumpFake and (s.Shooting or s.AimAssist) then
                 local char, root = localParts()
                 local hoop, ball = targetHoop(), GetCurrentBall()
-                if root and hoop then
+                if root and hoop and (config.SilentAimShot or config.PerfectShot) then
                     local d = hoop.Position - root.Position
                     local dir = Vector2.new(d.X, d.Z)
                     if dir.Magnitude > 0.01 then args[1] = dir.Unit end
                 end
-                if config.PerfectShot and #psHooks > 0 and playing() and hasBall() and ball and hoop then
-                    clearPerfect()
+                if (config.PerfectShot or config.ShotArcControl) and #psHooks > 0 and playing() and hasBall() and ball and hoop then
+                    psReq, perfectShotLock = nil, nil
                     psReq = {ball = ball, hoop = hoop, char = char, expires = os.clock() + 2.5}
                 end
             end
@@ -1696,6 +1875,7 @@ end
         actionBusy = false
         lastDribble, lastThreatCheck = -math.huge, 0
         if dangerLabel then dangerLabel.Visible = false end
+        hideTrajectory()
         if infinitePatch then
             infinitePatch.original = {Dribbles = 0, LastDribble = 0, DribbleDB = tick()}
             table.clear(infinitePatch.applied)
@@ -1736,6 +1916,7 @@ end
         removePerfectHook()
         removeStealHook()
         removeDangerGui()
+        removeTrajectory()
         table.clear(controllers)
         table.clear(notified)
     end
@@ -1758,12 +1939,13 @@ end
             if now - lastScan >= 2 then
                 lastScan = now
                 if not controllers.BallController or not controllers.MovementController or not controllers.Network
-                    or ((config.SilentAimShot or config.PerfectShot or config.AutoDribble) and not controllers.AbilityController) then discoverControllers() end
+                    or ((config.SilentAimShot or config.PerfectShot or config.ShotArcControl or config.QuickRelease or config.AutoDribble) and not controllers.AbilityController) then discoverControllers() end
             end
             updateSilentAim()
             updateInfinite()
             updatePerfectHook()
             updateStealHook()
+            updateTrajectory(now)
 
             if now - lastThreatCheck < 0.04 then return end
             lastThreatCheck = now
@@ -1778,7 +1960,12 @@ end
     local function setFeature(key, value)
         config[key] = value == true and not ScriptUnloaded
         if key == "AutoDunk" then setAutoDunk(config.AutoDunk) end
-        if not config.PerfectShot then clearPerfect() end
+        if not (config.PerfectShot or config.ShotArcControl) then psReq, perfectShotLock = nil, nil end
+        if not config.QuickRelease then
+            quickEpoch = quickEpoch + 1
+            quickPending = false
+        end
+        if not config.ShotTrajectory then removeTrajectory() end
         if anyEnabled() then
             start()
             updateInfinite()
@@ -1796,6 +1983,9 @@ end
         {"AutoDribble", "Auto Dribble", "Presses the game Dribble button when a nearby opposing player plays a Steal animation"},
         {"SilentAimShot", "Silent Aim", "Aims ordinary shot releases at your scoring hoop without moving the camera"},
         {"PerfectShot", "Perfect Shot", "Hold the ball for about 5 seconds before shooting for this feature to work."},
+        {"ShotTrajectory", "Shot Trajectory", "Preview the shot arc and estimated first landing point while holding the ball"},
+        {"QuickRelease", "Quick Release", "Attempt an earlier release for ordinary forward shots; server acceptance may vary"},
+        {"ShotArcControl", "Shot Arc Control", "Set the arc height of ordinary shots; also updates the trajectory preview"},
         {"AutoDunk", "Auto Dunk", "Activates the game Dunk button in range; no keyboard input or module calls"},
     }
     for _, control in ipairs(controls) do
@@ -1803,6 +1993,10 @@ end
         Tabs.Main:AddToggle(key, {Title = title, Description = description, ShowDescription = key == "PerfectShot", Default = false,
             Callback = function(value) setFeature(key, value) end})
     end
+    Tabs.Main:AddSlider("ShotArcHeight", {Title = "Shot Arc Height", Default = 10, Min = 3, Max = 30,
+        Step = 1, Rounding = 0, Callback = function(value)
+            if type(value) == "number" and value == value then shotArcHeight = math.clamp(value, 3, 30) end
+        end})
 -- No Steal Fall: scoped to the local character's ordinary Steal animation.
 do
     local enabled, heartbeat, character, humanoid, animator
