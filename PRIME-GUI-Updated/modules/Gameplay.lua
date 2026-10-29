@@ -1688,7 +1688,7 @@ end
                 end
                 if (config.PerfectShot or config.ShotArcControl) and #psHooks > 0 and playing() and hasBall() and ball and hoop then
                     psReq, perfectShotLock = nil, nil
-                    psReq = {ball = ball, hoop = hoop, char = char, expires = os.clock() + 2.5}
+                    psReq = {ball = ball, hoop = hoop, char = char, expires = os.clock() + 7}
                 end
             end
             return original(self, unpackArgs(args, 1, args.n))
