@@ -1351,7 +1351,7 @@ end
         end
         if hasBall() then resetDribbleCounters(infinitePatch) end
     end
-    local perfectPhysics
+    local perfectPhysics, pendingShot
     local perfectDebug = false
     local lastPerfectNote = -math.huge
     local updatePerfect
@@ -1364,99 +1364,81 @@ end
     end
     local function clearPerfect(reason)
         if reason then perfectNote(reason) end
-        if perfectPhysics then perfectPhysics:Disconnect(); perfectPhysics = nil end
-        perfectFlight = nil
-        perfectShotLock = nil
+        if perfectPhysics then perfectPhysics:Disconnect() perfectPhysics = nil end
+        perfectFlight, perfectShotLock, pendingShot = nil, nil, nil
     end
-    local function lastHolder()
-        local controller = controllers.BallController
-        if controller and type(controller.GetLastPlayerToPossessBall) == "function" then
-            local ok, player = pcall(controller.GetLastPlayerToPossessBall, controller)
-            if ok then return player end
-        end
+    local function shotValue(controller, method)
+        local f = controller and controller[method]
+        if type(f) ~= "function" then return false end
+        return pcall(f, controller)
     end
-    -- Armed by the server's own Throw echo (the game reacts to the same event), so it needs
-    -- no patch on Fire. The game has just thrown the ball towards the server's destination;
-    -- we keep its exact flight time and only move the landing point to the hoop, so the
-    -- arc has the same speed profile as any normal shot instead of a different one.
-    local function armPerfect(destination)
-        clearPerfect()
-        local ball = GetCurrentBall()
-        local hoop = targetHoop()
-        if not ball then perfectNote("мяч не найден") return end
-        if not hoop then perfectNote("кольцо не найдено") return end
-        if not playing() then perfectNote("раунд не в состоянии Playing") return end
-        if lastHolder() ~= LocalPlayer then return end
-        local now = os.clock()
-        perfectFlight = {ball = ball, hoop = hoop, character = LocalPlayer.Character,
-            destination = destination, started = now, deadline = now + 2}
-        perfectShotLock = {ball = ball, expires = perfectFlight.deadline}
-        -- Only this released shot owns a physics callback; no idle loop.
-        local ok, connection = pcall(function()
+    local function armPerfect(destination, request)
+        if pendingShot ~= request or not request or os.clock() > request.expires
+            or request.character ~= LocalPlayer.Character or request.ball ~= GetCurrentBall()
+            or request.hoop ~= targetHoop() or not playing() then return end
+        pendingShot = nil
+        request.destination, request.started, request.deadline = destination, os.clock(), os.clock() + 2.5
+        perfectFlight = request
+        perfectShotLock = {ball = request.ball, expires = request.deadline}
+        local ok, c = pcall(function()
             return RunService.PreSimulation:Connect(function()
-                if not pcall(updatePerfect) then clearPerfect("ошибка расчёта") end
+                local success = pcall(updatePerfect)
+                if not success then clearPerfect("ошибка расчёта") end
             end)
         end)
         if not ok then clearPerfect() return end
-        perfectPhysics = connection
-        pcall(updatePerfect)
+        perfectPhysics = c
+        local success = pcall(updatePerfect)
+        if not success then clearPerfect("ошибка расчёта") end
     end
     updatePerfect = function()
-        local flight = perfectFlight
-        if not flight then return end
-        local ball, controller = flight.ball, controllers.BallController
-        local character, _, humanoid = localParts()
+        local f = perfectFlight
+        if not f then return end
+        local ball, controller = f.ball, controllers.BallController
+        local character, _, hum = localParts()
         local now = os.clock()
-        if now > flight.deadline then
-            clearPerfect(not flight.arrival and "игра не задала мячу скорость" or nil)
-            return
+        if now > f.deadline then clearPerfect(not f.arrival and "не получено управление своим броском" or nil) return end
+        if not alive or not config.PerfectShot or not playing() or character ~= f.character
+            or not hum or hum.Health <= 0 or GetCurrentBall() ~= ball or not ball.Parent
+            or not f.hoop.Parent or targetHoop() ~= f.hoop or not controller then clearPerfect() return end
+        local ok, holder = shotValue(controller, "GetPlayerPossessingBall")
+        if not ok then return end
+        if holder and holder ~= LocalPlayer then clearPerfect("мяч подобрал другой игрок") return end
+        if holder == LocalPlayer or ball.Anchored then return end
+        local known, last = shotValue(controller, "GetLastPlayerToPossessBall")
+        if not known or last ~= LocalPlayer then return end
+        local success, owner = shotValue(controller, "GetBallNetworkOwner")
+        local controlled = success and owner == LocalPlayer
+        if not success then
+            local valid, own = shotValue(controller, "LocalPlayerIsBallNetworkOwner")
+            controlled = valid and own == true
         end
-        if not alive or not config.PerfectShot or not playing() or character ~= flight.character
-            or not humanoid or humanoid.Health <= 0 or GetCurrentBall() ~= ball or not ball.Parent
-            or not flight.hoop.Parent or targetHoop() ~= flight.hoop or not controller then clearPerfect(); return end
-        local ok, owner = pcall(controller.GetPlayerPossessingBall, controller)
-        if not ok or (owner and owner ~= LocalPlayer) then clearPerfect("мяч подобрал другой игрок"); return end
-        if ball.Anchored then return end
-        local velocity, position = ball.AssemblyLinearVelocity, ball.Position
-        if not flight.arrival then
-            -- Wait for the game's own throw velocity, then read its flight time from it.
-            local speed = Vector2.new(velocity.X, velocity.Z).Magnitude
-            if speed < 3 then return end
-            local seconds = Vector2.new(flight.destination.X - position.X, flight.destination.Z - position.Z).Magnitude / speed
-            if not (seconds > 0.1 and seconds < 3) then
-                seconds = math.clamp(math.log(0.75 + 0.045 * (flight.hoop.Position - position).Magnitude), 0.3, 2)
+        if not controlled then return end
+        local v, p, target = ball.AssemblyLinearVelocity, ball.Position, f.hoop.Position
+        local g = Workspace.Gravity
+        if not f.arrival then
+            if v.Magnitude < 3 or g <= 0 then return end
+            local dy = target.Y - p.Y
+            local disc = v.Y * v.Y - 2 * g * dy
+            local seconds = disc >= 0 and (v.Y + math.sqrt(disc)) / g or 0
+            if seconds <= 0.15 or seconds > 3 then
+                seconds = math.clamp(math.log(0.75 + 0.045 * (target - p).Magnitude), 0.4, 2.5)
             end
-            flight.arrival = now + seconds
-            flight.deadline = flight.arrival + 0.4
-            perfectShotLock = {ball = ball, expires = flight.deadline}
+            local apex = math.max(p.Y, target.Y) + 3
+            local minTime = (math.sqrt(2 * g * (apex - p.Y)) + math.sqrt(2 * g * (apex - target.Y))) / g
+            seconds = math.max(seconds, minTime)
+            f.arrival, f.deadline = now + seconds, now + seconds + 0.2
+            perfectShotLock = {ball = ball, expires = f.deadline}
         end
-        local remaining = flight.arrival - now
-        if remaining <= 0.08 then
-            if not flight.reported then
-                flight.reported = true
-                perfectNote(flight.wrote and "поправки применены до конца полёта"
-                    or flight.applied and "траектория совпала, поправки не понадобились"
-                    or "мяч летел сам, поправки не применялись")
-            end
-            return
+        local remaining = f.arrival - now
+        if remaining <= 0.04 then clearPerfect() return end
+        local ideal = (target - p) / remaining + Vector3.new(0, g * remaining * 0.5, 0)
+        local speed = ideal.Magnitude
+        if speed ~= speed or speed > 600 then clearPerfect("траектория больше не соответствует броску") return end
+        if (ideal - v).Magnitude > 0.35 then
+            ball.AssemblyLinearVelocity = ideal
+            f.wrote = true
         end
-        -- The first moments are always applied: the owner flag replicates with a delay.
-        -- Afterwards a ball simulated by another client cannot be steered from here.
-        local success, controlled = pcall(controller.LocalPlayerIsBallNetworkOwner, controller)
-        if success and controlled == true then
-            flight.lostAt = nil
-        elseif now - flight.started > 0.35 then
-            flight.lostAt = flight.lostAt or now
-            if now - flight.lostAt > 0.3 then clearPerfect("мячом управляет другой клиент (нет сетевого владения)") end
-            return
-        end
-        -- Ballistic solution to the hoop for the remaining time. On the planned path this
-        -- equals the current velocity, so it only acts when the ball deviates.
-        local ideal = (flight.hoop.Position - position) / remaining + Vector3.new(0, Workspace.Gravity * remaining * 0.5, 0)
-        local change = (ideal - velocity).Magnitude
-        if change > (flight.applied and 160 or 110) then clearPerfect("поправка траектории слишком большая"); return end
-        if change > 0.35 then ball.AssemblyLinearVelocity = ideal; flight.wrote = true end
-        flight.applied = true
     end
     local function removeSilentAim()
         local patch = throwPatch
@@ -1470,39 +1452,39 @@ end
         local service = ability and ability.BallService
         local signal = service and service.Throw
         if not (config.SilentAimShot or config.PerfectShot) or not mutable(signal) then removeSilentAim() return end
-        if throwPatch and throwPatch.object == signal
-            and rawget(signal, "Fire") == throwPatch.wrapper then return end
+        if throwPatch and throwPatch.object == signal and rawget(signal, "Fire") == throwPatch.wrapper then return end
         removeSilentAim()
         local original = signal.Fire
         if type(original) ~= "function" then return end
         local patch = {object = signal, rawOriginal = rawget(signal, "Fire")}
         patch.wrapper = function(self, ...)
             local args = table.pack(...)
-            local state = states()
-            if alive and (config.SilentAimShot or config.PerfectShot) and self == signal and typeof(args[1]) == "Vector2"
-                and args[2] ~= true and not state.Dunking and not state.Ability
-                and (state.Shooting or state.AimAssist) then
-                local _, root = localParts()
-                local hoop = targetHoop()
+            local s = states()
+            if alive and (config.SilentAimShot or config.PerfectShot) and self == signal
+                and typeof(args[1]) == "Vector2" and args[2] ~= true and not s.Dunking
+                and not s.Ability and not s.PumpFake and (s.Shooting or s.AimAssist) then
+                local char, root = localParts()
+                local hoop, ball = targetHoop(), GetCurrentBall()
                 if root and hoop then
-                    local delta = hoop.Position - root.Position
-                    local direction = Vector2.new(delta.X, delta.Z)
-                    if direction.Magnitude > 0.01 then args[1] = direction.Unit end
+                    local d = hoop.Position - root.Position
+                    local dir = Vector2.new(d.X, d.Z)
+                    if dir.Magnitude > 0.01 then args[1] = dir.Unit end
+                end
+                if config.PerfectShot and playing() and hasBall() and ball and hoop then
+                    clearPerfect()
+                    pendingShot = {ball = ball, hoop = hoop, character = char, expires = os.clock() + 2.5}
                 end
             end
-            -- Only the outgoing shot direction changes. Nil arguments, flags,
-            -- middleware, passes, layups and camera state are preserved.
             return original(self, unpackArgs(args, 1, args.n))
         end
         rawset(signal, "Fire", patch.wrapper)
         throwPatch = patch
     end
     local perfectEcho, perfectEchoSignal
-    local lastShotAt, lastHadBallAt, lastAbilityAt = -math.huge, -math.huge, -math.huge
     local function echoConnected()
         if not perfectEcho then return false end
-        local ok, value = pcall(function() return perfectEcho.Connected end)
-        return ok and value ~= false
+        local ok, connected = pcall(function() return perfectEcho.Connected end)
+        return ok and connected ~= false
     end
     local function removePerfectHook()
         if perfectEcho then pcall(function() perfectEcho:Disconnect() end) end
@@ -1511,34 +1493,29 @@ end
     end
     local function updatePerfectHook()
         if not config.PerfectShot then
-            if perfectEcho then removePerfectHook() end
+            if perfectEcho or pendingShot or perfectFlight then removePerfectHook() end
             return
         end
+        if pendingShot and os.clock() > pendingShot.expires then clearPerfect("игра не подтвердила бросок") end
         local ability = controllers.AbilityController
         local service = ability and ability.BallService
         local signal = service and service.Throw
         if not signal or type(signal.Connect) ~= "function" then return end
         if perfectEchoSignal == signal and echoConnected() then return end
-        if perfectEcho then pcall(function() perfectEcho:Disconnect() end) end
-        -- The callback only hands off: all work runs in a fresh deferred thread,
-        -- after the game's own handler for the same event has finished.
-        local ok, connection = pcall(signal.Connect, signal, function(destination)
-            if typeof(destination) ~= "Vector3" then return end
+        if perfectEcho then removePerfectHook() end
+        local ok, c = pcall(signal.Connect, signal, function(destination)
+            local request = pendingShot
+            if not alive or not config.PerfectShot or not request or typeof(destination) ~= "Vector3"
+                or os.clock() > request.expires then return end
             task.defer(function()
-                if not (alive and config.PerfectShot) or lastHolder() ~= LocalPlayer then return end
-                -- Our own shot: the shot state was seen just before the echo, or we held the
-                -- ball a moment ago and no ability was running (abilities throw the ball too).
-                local now = os.clock()
-                if not (now - lastShotAt < 2.5 or (now - lastHadBallAt < 2.5 and now - lastAbilityAt > 1.5)) then
-                    perfectNote("бросок не распознан")
-                    return
-                end
-                lastShotAt = -math.huge
-                pcall(armPerfect, destination)
+                if not alive or not config.PerfectShot or pendingShot ~= request then return end
+                local success = pcall(armPerfect, destination, request)
+                if not success then clearPerfect("ошибка подготовки броска") end
             end)
         end)
-        if ok and connection then perfectEcho, perfectEchoSignal = connection, signal end
+        if ok and c then perfectEcho, perfectEchoSignal = c, signal end
     end
+
     local function discoverControllers()
         if discoveryTask or not alive then return end
         discoveryTask = task.defer(function()
@@ -1580,6 +1557,7 @@ end
                 for name, object in pairs(found) do controllers[name] = object end
                 updateInfinite()
                 updateSilentAim()
+                updatePerfectHook()
                 if not controllers.BallController then notifyOnce("controllers", "Waiting for the game's client controllers") end
             end
             discoveryTask = nil
@@ -1593,72 +1571,148 @@ end
             and not state.Shooting and not state.AimAssist and not state.Dunking and not state.Ability
             and not state.Stunned and not state.PumpFake and not actionBusy
     end
-    local function runAction(method)
-        if method ~= "Dribble" then return false end
-        local object = controllers.BallController
-        if not object or type(object[method]) ~= "function" then return false end
-        actionBusy = true
-        local epoch = actionEpoch
-        task.defer(function()
-            local selected = config.AutoDribble
-            if not alive or epoch ~= actionEpoch or not selected or not playing() or not hasBall() then
-                if epoch == actionEpoch then actionBusy = false end
-                return
-            end
-            local ok, err = pcall(object[method], object)
-            if epoch == actionEpoch then actionBusy = false end
-            if not ok then notifyOnce(method, method .. " failed: " .. tostring(err)) end
-        end)
-        return true
-    end
-    -- AutoDribble: the server rebroadcasts every Steal as (character, targetCFrame) as soon as it
-    -- is received, before the animation replicates. The lunge segment (stealer -> targetCFrame)
-    -- tells us whether it is aimed at us; dribble fires in the same frame.
     local stealEcho, stealEchoSignal
+    local adCons, adPlayers, adThreats = {}, {}, {}
+    local adBound = false
+    local function tryDribble()
+        if not alive or not config.AutoDribble or actionBusy or not playing() or not hasBall() then return end
+        local _, root, hum = localParts()
+        if not actionAllowed(root, hum) or hum:GetState() == Enum.HumanoidStateType.Freefall then return end
+        local ball, ability = controllers.BallController, controllers.AbilityController
+        if not ball or type(ball.Dribble) ~= "function" or type(ball.DribbleDB) ~= "number"
+            or ball.DribbleDB > tick() or ability and ability.InPostForm then return end
+        local now = os.clock()
+        for char, t in pairs(adThreats) do
+            local er = char:FindFirstChild("HumanoidRootPart")
+            local p = Players:GetPlayerFromCharacter(char)
+            if now >= t.untilAt or not er or not char.Parent or not p or not opponent(p) then
+                adThreats[char] = nil
+            elseif not t.done and now >= t.nextAt and math.abs(root.Position.Y - er.Position.Y) < 7 then
+                local a = Vector2.new(er.Position.X, er.Position.Z)
+                local b = t.target or er.Position + er.CFrame.LookVector * 15.5
+                local d = Vector2.new(b.X, b.Z) - a
+                local v = Vector2.new(root.Position.X, root.Position.Z) - a
+                local n = d:Dot(d)
+                local k = n > 0.01 and math.clamp(v:Dot(d) / n, 0, 1) or 0
+                if v.Magnitude <= 24 and (v - d * k).Magnitude <= 7.5 then
+                    t.nextAt = now + 0.04
+                    local db, stamp = ball.DribbleDB, values().DribblingTick
+                    local epoch = actionEpoch
+                    actionBusy = true
+                    local ok, err = pcall(ball.Dribble, ball)
+                    if epoch == actionEpoch then actionBusy = false end
+                    if not ok then notifyOnce("Dribble", "Dribble failed: " .. tostring(err)) return end
+                    if not alive or epoch ~= actionEpoch then return end
+                    if values().DribblingTick ~= stamp or not config.InfiniteDribble and ball.DribbleDB ~= db then
+                        t.done, lastDribble = true, now
+                        for _, other in pairs(adThreats) do other.done = true end
+                    end
+                    return
+                end
+            end
+        end
+    end
+    local function onStealSignal(char, target, age)
+        if not alive or not config.AutoDribble or typeof(char) ~= "Instance" or not char:IsA("Model") then return end
+        local p = Players:GetPlayerFromCharacter(char)
+        if not p or not opponent(p) then return end
+        local now = os.clock()
+        local t = adThreats[char]
+        if not t or now >= t.untilAt then
+            t = {untilAt = now + math.max(0, 0.5 - (age or 0)), nextAt = 0, done = false}
+            adThreats[char] = t
+        end
+        if typeof(target) == "CFrame" then target = target.Position end
+        if typeof(target) == "Vector3" then t.target = target end
+        tryDribble()
+    end
+    local function clearAdPlayer(p)
+        local r = adPlayers[p]
+        if not r then return end
+        disconnectAll(r.pc)
+        disconnectAll(r.cc)
+        if r.ac then r.ac:Disconnect() end
+        if r.char then adThreats[r.char] = nil end
+        adPlayers[p] = nil
+    end
+    local function bindAdPlayer(p)
+        if p == LocalPlayer or adPlayers[p] then return end
+        local r = {pc = {}, cc = {}}
+        adPlayers[p] = r
+        local function bindChar(char)
+            disconnectAll(r.cc)
+            if r.ac then r.ac:Disconnect() r.ac = nil end
+            if r.char then adThreats[r.char] = nil end
+            r.char, r.anim = char, nil
+            if not char then return end
+            local function played(track, existing)
+                local a = track.Animation
+                local id = a and a.AnimationId:match("%d+")
+                if not id or not stealIds[id] or track.Looped then return end
+                local age = existing and track.TimePosition / math.max(math.abs(track.Speed), 0.1) or 0
+                if age < 0.5 then onStealSignal(char, nil, age) end
+            end
+            local function bindAnim()
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                local anim = hum and hum:FindFirstChildOfClass("Animator")
+                if not anim or r.anim == anim then return end
+                if r.ac then r.ac:Disconnect() end
+                r.anim = anim
+                r.ac = anim.AnimationPlayed:Connect(function(track) played(track, false) end)
+                for _, track in ipairs(anim:GetPlayingAnimationTracks()) do
+                    if track.IsPlaying then played(track, true) end
+                end
+            end
+            connect(r.cc, char.DescendantAdded, function(v)
+                if v:IsA("Animator") or v:IsA("Humanoid") then bindAnim() end
+            end)
+            bindAnim()
+        end
+        connect(r.pc, p.CharacterAdded, bindChar)
+        connect(r.pc, p.CharacterRemoving, function() bindChar(nil) end)
+        bindChar(p.Character)
+    end
     local function removeStealHook()
         if stealEcho then pcall(function() stealEcho:Disconnect() end) end
         stealEcho, stealEchoSignal = nil, nil
-    end
-    local function onStealSignal(character, target)
-        if not (alive and config.AutoDribble) or typeof(character) ~= "Instance" then return end
-        local _, root, humanoid = localParts()
-        local enemyRoot = character:FindFirstChild("HumanoidRootPart")
-        local player = Players:GetPlayerFromCharacter(character)
-        if not root or not enemyRoot or not player or not opponent(player) then return end
-        if not playing() or not hasBall() or not actionAllowed(root, humanoid) then return end
-        local from = Vector2.new(enemyRoot.Position.X, enemyRoot.Position.Z)
-        local lunge = Vector2.new(target.X, target.Z) - from
-        local toMe = Vector2.new(root.Position.X, root.Position.Z) - from
-        local length = lunge:Dot(lunge)
-        local along = length > 0 and math.clamp(toMe:Dot(lunge) / length, 0, 1) or 0
-        if (toMe - lunge * along).Magnitude > 8 then return end
-        local ball = controllers.BallController
-        local ability = controllers.AbilityController
-        if ball and type(ball.DribbleDB) == "number" and ball.DribbleDB <= tick()
-            and not (ability and ability.InPostForm) and runAction("Dribble") then
-            lastDribble = os.clock()
-        end
+        disconnectAll(adCons)
+        for p in pairs(adPlayers) do clearAdPlayer(p) end
+        table.clear(adThreats)
+        adBound = false
     end
     local function updateStealHook()
         if not config.AutoDribble then
-            if stealEcho then removeStealHook() end
+            if adBound or stealEcho then removeStealHook() end
             return
+        end
+        if not adBound then
+            adBound = true
+            connect(adCons, Players.PlayerAdded, bindAdPlayer)
+            connect(adCons, Players.PlayerRemoving, clearAdPlayer)
+            for _, p in ipairs(Players:GetPlayers()) do bindAdPlayer(p) end
         end
         local ability = controllers.AbilityController
         local service = ability and ability.BallService
         local signal = service and service.Steal
-        if not signal or type(signal.Connect) ~= "function" then return end
-        if stealEchoSignal == signal and stealEcho then
-            local ok, connected = pcall(function() return stealEcho.Connected end)
-            if ok and connected ~= false then return end
+        if signal and type(signal.Connect) == "function" then
+            local connected = false
+            if stealEcho and stealEchoSignal == signal then
+                local ok, value = pcall(function() return stealEcho.Connected end)
+                connected = ok and value ~= false
+            end
+            if not connected then
+                if stealEcho then pcall(function() stealEcho:Disconnect() end) end
+                stealEcho, stealEchoSignal = nil, nil
+                local ok, c = pcall(signal.Connect, signal, function(char, target) onStealSignal(char, target) end)
+                if ok and c then stealEcho, stealEchoSignal = c, signal end
+            end
+        elseif stealEcho then
+            pcall(function() stealEcho:Disconnect() end)
+            stealEcho, stealEchoSignal = nil, nil
         end
-        removeStealHook()
-        local ok, connection = pcall(signal.Connect, signal, function(character, target)
-            if typeof(target) ~= "CFrame" then return end
-            task.defer(onStealSignal, character, target.Position)
-        end)
-        if ok and connection then stealEcho, stealEchoSignal = connection, signal end
+        tryDribble()
     end
+
     local function resetRound()
         -- Round transitions can replace controllers, signals or their Fire method.
         -- Keep the toggles enabled, but rebuild their runtime bindings.
@@ -1733,18 +1787,13 @@ end
             if now - lastScan >= 2 then
                 lastScan = now
                 if not controllers.BallController or not controllers.MovementController or not controllers.Network
-                    or ((config.SilentAimShot or config.PerfectShot) and not controllers.AbilityController) then discoverControllers() end
+                    or ((config.SilentAimShot or config.PerfectShot or config.AutoDribble) and not controllers.AbilityController) then discoverControllers() end
             end
             updateSilentAim()
             updateInfinite()
             updatePerfectHook()
             updateStealHook()
-            if config.PerfectShot then
-                local state = states()
-                if (state.Shooting or state.AimAssist) and not state.Dunking and not state.Ability then lastShotAt = now end
-                if state.Ability then lastAbilityAt = now end
-                if values().HasBall == true then lastHadBallAt = now end
-            end
+
             if now - lastThreatCheck < 0.04 then return end
             lastThreatCheck = now
             local character, root, humanoid = localParts()
@@ -1763,6 +1812,8 @@ end
             start()
             updateInfinite()
             updateSilentAim()
+            updatePerfectHook()
+            updateStealHook()
             if not config.StealDanger then removeDangerGui() end
         else stop() end
     end
@@ -1771,7 +1822,7 @@ end
     local controls = {
         {"StealDanger", "Steal Danger", "Warns about nearby enemies and incoming Steal animations"},
         {"InfiniteDribble", "Infinite Dribble", "Unlimited local Dribble uses with no series limit or cooldown"},
-        {"AutoDribble", "Auto Dribble", "Dribbles the moment an opposing player's Steal lunge is aimed at you"},
+        {"AutoDribble", "Auto Dribble", "Reacts to enemy Steal animations and signals; retries briefly when Dribble becomes ready"},
         {"SilentAimShot", "Silent Aim", "Aims ordinary shot releases at your scoring hoop without moving the camera"},
         {"PerfectShot", "Perfect Shot", "Hold the ball for about 5 seconds before shooting for this feature to work."},
         {"AutoDunk", "Auto Dunk", "Activates the game Dunk button in range; no keyboard input or module calls"},
