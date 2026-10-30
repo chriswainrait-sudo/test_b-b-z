@@ -143,6 +143,121 @@ local function windowGradient()
     return g
 end
 
+local function createAutumnLeaves(mainFrame, innerClip, screenGui)
+    local layer, animation, destruction
+    local leaves, elapsed, destroyed = {}, 0, false
+    local random = Random.new()
+    local palette = {
+        Color3.fromRGB(239, 122, 33), Color3.fromRGB(255, 173, 45),
+        Color3.fromRGB(244, 198, 62), Color3.fromRGB(214, 91, 29),
+    }
+    local silhouettes = {
+        {{0.50,0.02},{0.61,0.27},{0.78,0.15},{0.74,0.40},{0.98,0.34},
+            {0.87,0.55},{0.98,0.64},{0.69,0.72},{0.57,0.87},{0.51,0.78},
+            {0.49,0.78},{0.40,0.86},{0.31,0.72},{0.03,0.64},{0.14,0.54},
+            {0.02,0.34},{0.26,0.40},{0.22,0.15},{0.39,0.27}},
+        {{0.50,0.02},{0.65,0.15},{0.81,0.34},{0.87,0.52},{0.78,0.72},
+            {0.60,0.88},{0.50,0.94},{0.34,0.85},{0.20,0.67},{0.14,0.46},{0.27,0.22}},
+        {{0.50,0.02},{0.66,0.23},{0.85,0.20},{0.76,0.40},{0.96,0.44},
+            {0.79,0.60},{0.84,0.72},{0.60,0.78},{0.50,0.94},{0.40,0.78},
+            {0.16,0.72},{0.21,0.60},{0.04,0.44},{0.24,0.40},{0.15,0.20},{0.34,0.23}},
+    }
+    local function clear()
+        if animation then animation:Disconnect(); animation = nil end
+        if layer then layer:Destroy(); layer = nil end
+        table.clear(leaves)
+        elapsed = 0
+    end
+    local function frame(parent, color, x, y, width, height)
+        local f = Instance.new("Frame")
+        f.BorderSizePixel = 0
+        f.BackgroundColor3 = color
+        f.BackgroundTransparency = 0.22
+        f.Position = UDim2.fromScale(x, y)
+        f.Size = UDim2.fromScale(width, height)
+        f.Active, f.Selectable, f.ZIndex = false, false, 0
+        f.Parent = parent
+        return f
+    end
+    local function makeLeaf()
+        local leaf = Instance.new("Frame")
+        local size = random:NextInteger(15, 27)
+        leaf.Name = "Leaf"
+        leaf.AnchorPoint = Vector2.new(0.5, 0.5)
+        leaf.Size = UDim2.fromOffset(size, size)
+        leaf.BackgroundTransparency, leaf.BorderSizePixel = 1, 0
+        leaf.Active, leaf.Selectable, leaf.ZIndex = false, false, 0
+        leaf.Parent = layer
+        local color = palette[random:NextInteger(1, #palette)]
+        local polygon = silhouettes[random:NextInteger(1, #silhouettes)]
+        local pieces = {}
+        for row = 0, 19 do
+            local y, intersections = (row + 0.5) / 20, {}
+            for i, a in ipairs(polygon) do
+                local b = polygon[i % #polygon + 1]
+                if (a[2] <= y and b[2] > y) or (b[2] <= y and a[2] > y) then
+                    intersections[#intersections + 1] = a[1] + (y - a[2]) * (b[1] - a[1]) / (b[2] - a[2])
+                end
+            end
+            table.sort(intersections)
+            for i = 1, #intersections - 1, 2 do
+                pieces[#pieces + 1] = frame(leaf, color, intersections[i], row / 20,
+                    intersections[i + 1] - intersections[i], 0.052)
+            end
+        end
+        local vein = color:Lerp(Color3.fromRGB(99, 51, 17), 0.45)
+        pieces[#pieces + 1] = frame(leaf, vein, 0.48, 0.18, 0.035, 0.81)
+        for _, side in ipairs({-1, 1}) do
+            local branch = frame(leaf, vein, 0.49, 0.40, 0.025, 0.30)
+            branch.Rotation = side * 42
+            pieces[#pieces + 1] = branch
+        end
+        return {gui = leaf, pieces = pieces, size = size, x = random:NextNumber(0.04, 0.96),
+            y = random:NextNumber(-0.5, 0.95), speed = random:NextNumber(27, 58),
+            phase = random:NextNumber(0, math.pi * 2), sway = random:NextNumber(0.015, 0.055),
+            rotation = random:NextNumber(-180, 180), spin = random:NextNumber(-38, 38)}
+    end
+    local function setEnabled(value)
+        if not value or destroyed or ScriptUnloaded then clear(); return end
+        if animation then return end
+        layer = Instance.new("Frame")
+        layer.Name = "AutumnLeaves"
+        layer.Size = UDim2.fromScale(1, 1)
+        layer.BackgroundTransparency, layer.BorderSizePixel = 1, 0
+        layer.Active, layer.Selectable, layer.ZIndex = false, false, 0
+        layer.ClipsDescendants = true
+        layer.Parent = innerClip
+        for _ = 1, 22 do leaves[#leaves + 1] = makeLeaf() end
+        animation = RunService.Heartbeat:Connect(function(dt)
+            if not mainFrame.Parent or not screenGui.Parent or ScriptUnloaded then clear(); return end
+            if not mainFrame.Visible or not screenGui.Enabled then return end
+            local height = layer.AbsoluteSize.Y
+            if height <= 0 then return end
+            dt = math.min(dt, 0.1)
+            elapsed = elapsed + dt
+            for _, leaf in ipairs(leaves) do
+                leaf.y = leaf.y + leaf.speed * dt / height
+                leaf.rotation = (leaf.rotation + leaf.spin * dt) % 360
+                if leaf.y > 1 + leaf.size / height then
+                    leaf.y, leaf.x = -leaf.size / height, random:NextNumber(0.04, 0.96)
+                end
+                leaf.gui.Position = UDim2.fromScale(leaf.x + math.sin(elapsed * 0.9 + leaf.phase) * leaf.sway, leaf.y)
+                leaf.gui.Rotation = leaf.rotation + math.sin(elapsed + leaf.phase) * 16
+                local fade = math.clamp((leaf.y - 0.84) / 0.16, 0, 1)
+                local transparency = 0.22 + fade * 0.78
+                for _, piece in ipairs(leaf.pieces) do piece.BackgroundTransparency = transparency end
+            end
+        end)
+    end
+    local function destroy()
+        destroyed = true
+        clear()
+        if destruction then destruction:Disconnect(); destruction = nil end
+    end
+    destruction = screenGui.Destroying:Connect(destroy)
+    return {SetEnabled = setEnabled, Destroy = destroy}
+end
+
 -- Silver border that fades from the top-left corner.
 local function borderGradient()
     local g = Instance.new("UIGradient")
@@ -714,6 +829,11 @@ function NexusUI:CreateWindow(options)
     end
 
     local window = {}
+    local autumnLeaves = createAutumnLeaves(mainFrame, innerClip, screenGui)
+    function window:SetAutumnLeavesEnabled(value)
+        autumnLeaves.SetEnabled(value == true)
+    end
+    RegisterUnloadCallback(autumnLeaves.Destroy)
     local restoreGui
     local connections = {}
     local function track(conn)
@@ -2477,6 +2597,12 @@ Tabs = {
 
 Tabs.Settings = Window:AddTab({ Title = "Settings"})
 NexusUI:SetTheme("Noir")
+
+Tabs.Settings:AddSection("Appearance")
+Tabs.Settings:AddToggle("AutumnLeaves", {Title = "Autumn Leaves",
+    Description = "Falling orange and yellow leaves inside the interface", Default = true,
+    Callback = function(value) Window:SetAutumnLeavesEnabled(value) end})
+Window:SetAutumnLeavesEnabled(true)
 
 currentCloseKey = Enum.KeyCode.LeftAlt
 waitingForKey = false
