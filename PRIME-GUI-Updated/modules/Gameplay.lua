@@ -1121,7 +1121,7 @@ end
 
     local config = {StealDanger = false, InfiniteDribble = false, AutoDribble = false,
         SilentAimShot = false, AutoDunk = false, PerfectShot = false,
-        ShotTrajectory = false, ShotArcControl = false, QuickRelease = false}
+        ShotTrajectory = false, ShotArcControl = false, QuickRelease = false, NoInboundPass = false}
     local controllers, connections, roundConnections = {}, {}, {}
     local alive = false
     local heartbeat, discoveryTask, dangerGui, dangerLabel
@@ -1697,6 +1697,70 @@ end
         throwPatch = patch
     end
 
+    local inboundHooks, inboundUntil = {}, 0
+    local function removeInboundHooks()
+        for _, h in ipairs(inboundHooks) do
+            if rawget(h.object, h.key) == h.wrapper then rawset(h.object, h.key, h.saved) end
+        end
+        table.clear(inboundHooks)
+        inboundUntil = 0
+    end
+    local function inboundPhase()
+        local gv = ReplicatedStorage:FindFirstChild("GameValues")
+        local barrier = Workspace:FindFirstChild("BARRIER")
+        local home, away = gv and gv:FindFirstChild("Home"), gv and gv:FindFirstChild("Away")
+        local tip = gv and gv:FindFirstChild("TipOff")
+        if not gv or not barrier or not home or not away or home.Value + away.Value <= 0
+            or (tip and tip.Value) then inboundUntil = 0; return false end
+        local now = os.clock()
+        if barrier.CanCollide then
+            local mode = controllers.Network and controllers.Network.Gamemode
+            inboundUntil = now + ((mode == "Match-1v1" or mode == "Match-2v2") and 0.5 or 0)
+            return true
+        end
+        return now < inboundUntil
+    end
+    local function blockInboundPass()
+        return alive and config.NoInboundPass and not ScriptUnloaded and LocalPlayer.Character
+            and LocalPlayer.Team and LocalPlayer.Team.Name ~= "Visitor" and not LocalPlayer.Neutral
+            and inboundPhase() and hasBall()
+    end
+    local function updateInboundHooks()
+        if not config.NoInboundPass then
+            if #inboundHooks > 0 then removeInboundHooks() end
+            return
+        end
+        inboundPhase()
+        local ability = controllers.AbilityController
+        local signal = ability and ability.BallService and ability.BallService.Pass
+        local ball = controllers.BallController
+        if #inboundHooks > 0 then
+            local valid = true
+            for _, h in ipairs(inboundHooks) do
+                if rawget(h.object, h.key) ~= h.wrapper
+                    or (h.key == "Fire" and h.object ~= signal)
+                    or (h.key == "CanPass" and h.object ~= ball) then valid = false; break end
+            end
+            if valid and #inboundHooks == 2 then return end
+            removeInboundHooks()
+        end
+        local function install(object, key)
+            if not mutable(object) or type(object[key]) ~= "function" then return end
+            local original = object[key]
+            local h = {object = object, key = key, saved = rawget(object, key)}
+            h.wrapper = function(self, ...)
+                if self == object and blockInboundPass() then
+                    if key == "CanPass" then return false end
+                    return
+                end
+                return original(self, ...)
+            end
+            rawset(object, key, h.wrapper)
+            inboundHooks[#inboundHooks + 1] = h
+        end
+        install(ball, "CanPass")
+        install(signal, "Fire")
+    end
     local function discoverControllers()
         if discoveryTask or not alive then return end
         discoveryTask = task.defer(function()
@@ -1739,6 +1803,7 @@ end
                 updateInfinite()
                 updateSilentAim()
                 updatePerfectHook()
+                updateInboundHooks()
                 if not controllers.BallController then notifyOnce("controllers", "Waiting for the game's client controllers") end
             end
             discoveryTask = nil
@@ -1866,6 +1931,7 @@ end
     local function resetRound()
         -- Round transitions can replace controllers, signals or their Fire method.
         -- Keep the toggles enabled, but rebuild their runtime bindings.
+        removeInboundHooks()
         if discoveryTask then pcall(task.cancel, discoveryTask) discoveryTask = nil end
         removeSilentAim()
         removePerfectHook()
@@ -1917,6 +1983,7 @@ end
         removeStealHook()
         removeDangerGui()
         removeTrajectory()
+        removeInboundHooks()
         table.clear(controllers)
         table.clear(notified)
     end
@@ -1939,13 +2006,14 @@ end
             if now - lastScan >= 2 then
                 lastScan = now
                 if not controllers.BallController or not controllers.MovementController or not controllers.Network
-                    or ((config.SilentAimShot or config.PerfectShot or config.ShotArcControl or config.QuickRelease or config.AutoDribble) and not controllers.AbilityController) then discoverControllers() end
+                    or ((config.SilentAimShot or config.PerfectShot or config.ShotArcControl or config.QuickRelease or config.NoInboundPass or config.AutoDribble) and not controllers.AbilityController) then discoverControllers() end
             end
             updateSilentAim()
             updateInfinite()
             updatePerfectHook()
             updateStealHook()
             updateTrajectory(now)
+            updateInboundHooks()
 
             if now - lastThreatCheck < 0.04 then return end
             lastThreatCheck = now
@@ -1972,6 +2040,7 @@ end
             updateSilentAim()
             updatePerfectHook()
             updateStealHook()
+            updateInboundHooks()
             if not config.StealDanger then removeDangerGui() end
         else stop() end
     end
@@ -1983,6 +2052,7 @@ end
         {"AutoDribble", "Auto Dribble", "Presses the game Dribble button when a nearby opposing player plays a Steal animation"},
         {"SilentAimShot", "Silent Aim", "Aims ordinary shot releases at your scoring hoop without moving the camera"},
         {"PerfectShot", "Perfect Shot", "Hold the ball for about 5 seconds before shooting for this feature to work."},
+        {"NoInboundPass", "No Inbound Pass", "Block client pass requests during the post-score inbound; server-forced transfers may still occur"},
         {"ShotTrajectory", "Shot Trajectory", "Preview the shot arc and estimated first landing point while holding the ball"},
         {"QuickRelease", "Quick Release", "Attempt an earlier release for ordinary forward shots; server acceptance may vary"},
         {"ShotArcControl", "Shot Arc Control", "Set the arc height of ordinary shots; also updates the trajectory preview"},
@@ -1997,6 +2067,82 @@ end
         Step = 1, Rounding = 0, Callback = function(value)
             if type(value) == "number" and value == value then shotArcHeight = math.clamp(value, 3, 30) end
         end})
+do
+    local enabled = false
+    local barrier, character, container
+    local connections, characterConnections, constraints = {}, {}, {}
+    local function disconnect(list)
+        for _, c in ipairs(list) do c:Disconnect() end
+        table.clear(list)
+    end
+    local function clearConstraints()
+        if container then container:Destroy() end
+        container = nil
+        table.clear(constraints)
+    end
+    local function addPart(part)
+        if not enabled or not barrier or not barrier.Parent or not character
+            or not part:IsA("BasePart") or not part:IsDescendantOf(character) or constraints[part] then return end
+        if not container or not container.Parent then
+            container = Instance.new("Folder")
+            container.Name = "PRIME_NoBarrier"
+            container.Parent = Workspace
+        end
+        local constraint = Instance.new("NoCollisionConstraint")
+        constraint.Part0, constraint.Part1 = barrier, part
+        constraint.Parent = container
+        constraints[part] = constraint
+    end
+    local function refreshBarrier()
+        local current = Workspace:FindFirstChild("BARRIER")
+        if current and not current:IsA("BasePart") then current = nil end
+        if barrier ~= current then clearConstraints(); barrier = current end
+        if character and barrier then
+            for _, part in ipairs(character:GetDescendants()) do addPart(part) end
+        end
+    end
+    local function bindCharacter(current)
+        disconnect(characterConnections)
+        clearConstraints()
+        character = current
+        if not character then return end
+        characterConnections[#characterConnections + 1] = character.DescendantAdded:Connect(addPart)
+        characterConnections[#characterConnections + 1] = character.DescendantRemoving:Connect(function(part)
+            local constraint = constraints[part]
+            if constraint then constraint:Destroy(); constraints[part] = nil end
+        end)
+        refreshBarrier()
+    end
+    local function stop()
+        enabled = false
+        disconnect(connections)
+        disconnect(characterConnections)
+        clearConstraints()
+        barrier, character = nil, nil
+    end
+    local function start()
+        if enabled then return end
+        enabled = true
+        connections[#connections + 1] = LocalPlayer.CharacterAdded:Connect(bindCharacter)
+        connections[#connections + 1] = LocalPlayer.CharacterRemoving:Connect(function(current)
+            if character == current then bindCharacter(nil) end
+        end)
+        connections[#connections + 1] = Workspace.ChildAdded:Connect(function(child)
+            if child.Name == "BARRIER" then refreshBarrier() end
+        end)
+        connections[#connections + 1] = Workspace.ChildRemoved:Connect(function(child)
+            if child == barrier then refreshBarrier() end
+        end)
+        bindCharacter(LocalPlayer.Character)
+    end
+    Tabs.Main:AddToggle("NoBarrier", {Title = "No Barrier",
+        Description = "Disable collisions between your character and the inbound barrier",
+        Default = false, Callback = function(value)
+            if value and not ScriptUnloaded then start() else stop() end
+        end})
+    RegisterUnloadCallback(stop)
+end
+
 -- No Steal Fall: scoped to the local character's ordinary Steal animation.
 do
     local enabled, heartbeat, character, humanoid, animator
