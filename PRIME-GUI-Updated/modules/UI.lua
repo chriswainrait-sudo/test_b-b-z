@@ -172,21 +172,21 @@ local function createAutumnLeaves(mainFrame, innerClip, screenGui)
         local f = Instance.new("Frame")
         f.BorderSizePixel = 0
         f.BackgroundColor3 = color
-        f.BackgroundTransparency = 0.22
+        f.BackgroundTransparency = 0.10
         f.Position = UDim2.fromScale(x, y)
         f.Size = UDim2.fromScale(width, height)
-        f.Active, f.Selectable, f.ZIndex = false, false, 0
+        f.Active, f.Selectable, f.ZIndex = false, false, 2
         f.Parent = parent
         return f
     end
     local function makeLeaf()
         local leaf = Instance.new("Frame")
-        local size = random:NextInteger(15, 27)
+        local size = random:NextInteger(20, 32)
         leaf.Name = "Leaf"
         leaf.AnchorPoint = Vector2.new(0.5, 0.5)
         leaf.Size = UDim2.fromOffset(size, size)
         leaf.BackgroundTransparency, leaf.BorderSizePixel = 1, 0
-        leaf.Active, leaf.Selectable, leaf.ZIndex = false, false, 0
+        leaf.Active, leaf.Selectable, leaf.ZIndex = false, false, 2
         leaf.Parent = layer
         local color = palette[random:NextInteger(1, #palette)]
         local polygon = silhouettes[random:NextInteger(1, #silhouettes)]
@@ -212,10 +212,13 @@ local function createAutumnLeaves(mainFrame, innerClip, screenGui)
             branch.Rotation = side * 42
             pieces[#pieces + 1] = branch
         end
-        return {gui = leaf, pieces = pieces, size = size, x = random:NextNumber(0.04, 0.96),
-            y = random:NextNumber(-0.5, 0.95), speed = random:NextNumber(27, 58),
+        local particle = {gui = leaf, pieces = pieces, size = size, x = random:NextNumber(0.04, 0.96),
+            y = random:NextNumber(0.02, 0.82), speed = random:NextNumber(27, 58),
             phase = random:NextNumber(0, math.pi * 2), sway = random:NextNumber(0.015, 0.055),
             rotation = random:NextNumber(-180, 180), spin = random:NextNumber(-38, 38)}
+        leaf.Position = UDim2.fromScale(particle.x, particle.y)
+        leaf.Rotation = particle.rotation
+        return particle
     end
     local function setEnabled(value)
         if not value or destroyed or ScriptUnloaded then clear(); return end
@@ -224,7 +227,7 @@ local function createAutumnLeaves(mainFrame, innerClip, screenGui)
         layer.Name = "AutumnLeaves"
         layer.Size = UDim2.fromScale(1, 1)
         layer.BackgroundTransparency, layer.BorderSizePixel = 1, 0
-        layer.Active, layer.Selectable, layer.ZIndex = false, false, 0
+        layer.Active, layer.Selectable, layer.ZIndex = false, false, 2
         layer.ClipsDescendants = true
         layer.Parent = innerClip
         for _ = 1, 22 do leaves[#leaves + 1] = makeLeaf() end
@@ -244,7 +247,7 @@ local function createAutumnLeaves(mainFrame, innerClip, screenGui)
                 leaf.gui.Position = UDim2.fromScale(leaf.x + math.sin(elapsed * 0.9 + leaf.phase) * leaf.sway, leaf.y)
                 leaf.gui.Rotation = leaf.rotation + math.sin(elapsed + leaf.phase) * 16
                 local fade = math.clamp((leaf.y - 0.84) / 0.16, 0, 1)
-                local transparency = 0.22 + fade * 0.78
+                local transparency = 0.10 + fade * 0.90
                 for _, piece in ipairs(leaf.pieces) do piece.BackgroundTransparency = transparency end
             end
         end)
@@ -554,6 +557,7 @@ end
 function NexusUI:CreateWindow(options)
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "NexusBasketballZeroUI"
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     screenGui.ResetOnSpawn = false
     screenGui.Parent = GuiParent
     attachTextStyler(screenGui)
@@ -634,7 +638,7 @@ function NexusUI:CreateWindow(options)
     sheen.Size = UDim2.fromScale(1, 1)
     sheen.BackgroundColor3 = Color3.new(1, 1, 1)
     sheen.BorderSizePixel = 0
-    sheen.ZIndex = 0
+    sheen.ZIndex = 1
     sheen.Parent = innerClip
     local sheenGradient = Instance.new("UIGradient")
     sheenGradient.Rotation = 35
@@ -693,7 +697,7 @@ function NexusUI:CreateWindow(options)
     topBar.Position = UDim2.new(0, 0, 0, 0)
     topBar.BackgroundTransparency = 1
     topBar.BorderSizePixel = 0
-    topBar.ZIndex = 2
+    topBar.ZIndex = 4
     topBar.Active = true
     topBar.Parent = innerClip
 
@@ -1183,6 +1187,7 @@ function NexusUI:CreateWindow(options)
     content.Size = UDim2.new(1, -16, 1, -(topBarHeight + 42 + mobileTabHintHeight))
     content.Position = UDim2.new(0, 8, 0, topBarHeight + 6 + mobileTabHintHeight)
     content.BackgroundTransparency = 1
+    content.ZIndex = 3
     content.ClipsDescendants = true
     content.Parent = innerClip
 
