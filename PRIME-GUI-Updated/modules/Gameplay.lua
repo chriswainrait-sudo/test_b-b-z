@@ -1121,7 +1121,7 @@ end
 
     local config = {StealDanger = false, InfiniteDribble = false, AutoDribble = false,
         SilentAimShot = false, AutoDunk = false, PerfectShot = false,
-        ShotTrajectory = false, ShotArcControl = false, QuickRelease = false, NoInboundPass = false}
+        ShotTrajectory = false, ShotArcControl = false, QuickRelease = false}
     local controllers, connections, roundConnections = {}, {}, {}
     local alive = false
     local heartbeat, discoveryTask, dangerGui, dangerLabel
@@ -1289,7 +1289,7 @@ end
         dangerLabel.Visible = false
         dangerLabel.Parent = dangerGui
         local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 7)
+        corner.CornerRadius = UDim.new(0, 0)
         corner.Parent = dangerLabel
         dangerGui.Parent = GuiParent
     end
@@ -1697,70 +1697,6 @@ end
         throwPatch = patch
     end
 
-    local inboundHooks, inboundUntil = {}, 0
-    local function removeInboundHooks()
-        for _, h in ipairs(inboundHooks) do
-            if rawget(h.object, h.key) == h.wrapper then rawset(h.object, h.key, h.saved) end
-        end
-        table.clear(inboundHooks)
-        inboundUntil = 0
-    end
-    local function inboundPhase()
-        local gv = ReplicatedStorage:FindFirstChild("GameValues")
-        local barrier = Workspace:FindFirstChild("BARRIER")
-        local home, away = gv and gv:FindFirstChild("Home"), gv and gv:FindFirstChild("Away")
-        local tip = gv and gv:FindFirstChild("TipOff")
-        if not gv or not barrier or not home or not away or home.Value + away.Value <= 0
-            or (tip and tip.Value) then inboundUntil = 0; return false end
-        local now = os.clock()
-        if barrier.CanCollide then
-            local mode = controllers.Network and controllers.Network.Gamemode
-            inboundUntil = now + ((mode == "Match-1v1" or mode == "Match-2v2") and 0.5 or 0)
-            return true
-        end
-        return now < inboundUntil
-    end
-    local function blockInboundPass()
-        return alive and config.NoInboundPass and not ScriptUnloaded and LocalPlayer.Character
-            and LocalPlayer.Team and LocalPlayer.Team.Name ~= "Visitor" and not LocalPlayer.Neutral
-            and inboundPhase() and hasBall()
-    end
-    local function updateInboundHooks()
-        if not config.NoInboundPass then
-            if #inboundHooks > 0 then removeInboundHooks() end
-            return
-        end
-        inboundPhase()
-        local ability = controllers.AbilityController
-        local signal = ability and ability.BallService and ability.BallService.Pass
-        local ball = controllers.BallController
-        if #inboundHooks > 0 then
-            local valid = true
-            for _, h in ipairs(inboundHooks) do
-                if rawget(h.object, h.key) ~= h.wrapper
-                    or (h.key == "Fire" and h.object ~= signal)
-                    or (h.key == "CanPass" and h.object ~= ball) then valid = false; break end
-            end
-            if valid and #inboundHooks == 2 then return end
-            removeInboundHooks()
-        end
-        local function install(object, key)
-            if not mutable(object) or type(object[key]) ~= "function" then return end
-            local original = object[key]
-            local h = {object = object, key = key, saved = rawget(object, key)}
-            h.wrapper = function(self, ...)
-                if self == object and blockInboundPass() then
-                    if key == "CanPass" then return false end
-                    return
-                end
-                return original(self, ...)
-            end
-            rawset(object, key, h.wrapper)
-            inboundHooks[#inboundHooks + 1] = h
-        end
-        install(ball, "CanPass")
-        install(signal, "Fire")
-    end
     local function discoverControllers()
         if discoveryTask or not alive then return end
         discoveryTask = task.defer(function()
@@ -1803,7 +1739,6 @@ end
                 updateInfinite()
                 updateSilentAim()
                 updatePerfectHook()
-                updateInboundHooks()
                 if not controllers.BallController then notifyOnce("controllers", "Waiting for the game's client controllers") end
             end
             discoveryTask = nil
@@ -1931,7 +1866,6 @@ end
     local function resetRound()
         -- Round transitions can replace controllers, signals or their Fire method.
         -- Keep the toggles enabled, but rebuild their runtime bindings.
-        removeInboundHooks()
         if discoveryTask then pcall(task.cancel, discoveryTask) discoveryTask = nil end
         removeSilentAim()
         removePerfectHook()
@@ -1983,7 +1917,6 @@ end
         removeStealHook()
         removeDangerGui()
         removeTrajectory()
-        removeInboundHooks()
         table.clear(controllers)
         table.clear(notified)
     end
@@ -2006,14 +1939,13 @@ end
             if now - lastScan >= 2 then
                 lastScan = now
                 if not controllers.BallController or not controllers.MovementController or not controllers.Network
-                    or ((config.SilentAimShot or config.PerfectShot or config.ShotArcControl or config.QuickRelease or config.NoInboundPass or config.AutoDribble) and not controllers.AbilityController) then discoverControllers() end
+                    or ((config.SilentAimShot or config.PerfectShot or config.ShotArcControl or config.QuickRelease or config.AutoDribble) and not controllers.AbilityController) then discoverControllers() end
             end
             updateSilentAim()
             updateInfinite()
             updatePerfectHook()
             updateStealHook()
             updateTrajectory(now)
-            updateInboundHooks()
 
             if now - lastThreatCheck < 0.04 then return end
             lastThreatCheck = now
@@ -2040,7 +1972,6 @@ end
             updateSilentAim()
             updatePerfectHook()
             updateStealHook()
-            updateInboundHooks()
             if not config.StealDanger then removeDangerGui() end
         else stop() end
     end
@@ -2051,8 +1982,7 @@ end
         {"InfiniteDribble", "Infinite Dribble", "Unlimited local Dribble uses with no series limit or cooldown"},
         {"AutoDribble", "Auto Dribble", "Presses the game Dribble button when a nearby opposing player plays a Steal animation"},
         {"SilentAimShot", "Silent Aim", "Aims ordinary shot releases at your scoring hoop without moving the camera"},
-        {"PerfectShot", "Perfect Shot", "Hold the ball for about 5 seconds before shooting for this feature to work."},
-        {"NoInboundPass", "No Inbound Pass", "Block client pass requests during the post-score inbound; server-forced transfers may still occur"},
+        {"PerfectShot", "Perfect Shot", "Will not work with ping >120 ms or while using a VPN."},
         {"ShotTrajectory", "Shot Trajectory", "Preview the shot arc and estimated first landing point while holding the ball"},
         {"QuickRelease", "Quick Release", "Attempt an earlier release for ordinary forward shots; server acceptance may vary"},
         {"ShotArcControl", "Shot Arc Control", "Set the arc height of ordinary shots; also updates the trajectory preview"},
@@ -2060,7 +1990,8 @@ end
     }
     for _, control in ipairs(controls) do
         local key, title, description = control[1], control[2], control[3]
-        Tabs.Main:AddToggle(key, {Title = title, Description = description, ShowDescription = key == "PerfectShot", Default = false,
+        Tabs.Main:AddToggle(key, {Title = title, Description = description, ShowDescription = key == "PerfectShot",
+            DescriptionColor = key == "PerfectShot" and Color3.fromRGB(255, 70, 70) or nil, Default = false,
             Callback = function(value) setFeature(key, value) end})
     end
     Tabs.Main:AddSlider("ShotArcHeight", {Title = "Shot Arc Height", Default = 10, Min = 3, Max = 30,
