@@ -1,12 +1,6 @@
 return {Exports={},Init=function()
 if not GuiParent or not Tabs then return end
--- ============================================================================
--- COURTSIDE / BZ merge — ported below from "BasketballZero SCRIPT.lua".
--- Controls are mounted in the ESP / Zone / Movement / Misc / Visuals
--- tabs. Features excluded per request (not transferred, inert in config):
--- Auto Awakening, Auto Dunk, No Cooldown Ability, Custom FOV, Fullbright,
--- AutoDribble, AutoBlock, AutoSteal.
--- ============================================================================
+
 do
     local playerGui = PlayerGui
     local player = LocalPlayer
@@ -242,7 +236,7 @@ do
     local palette = {Background = Color3.fromRGB(1,1,2), Surface = Color3.fromRGB(13,13,14),
         Text = Color3.fromRGB(248,248,248), Muted = Color3.fromRGB(125,125,132)}
     local accent = Color3.fromRGB(255,255,255)
-    local function round(object, radius) make("UICorner", {CornerRadius = UDim.new(0, radius or 9)}, object) end
+    local function round(object, radius) make("UICorner", {CornerRadius = UDim.new(0, 0)}, object) end
     local function button(parent, text, size, position)
         return make("TextButton", {Text = text, Size = size, Position = position or UDim2.new(),
             BackgroundColor3 = palette.Surface, TextColor3 = palette.Text, BorderSizePixel = 0,
