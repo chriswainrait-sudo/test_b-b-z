@@ -143,130 +143,6 @@ local function windowGradient()
     return g
 end
 
-local function drawBatSplash(parent)
-    local bat = Instance.new("CanvasGroup")
-    bat.Name = "Bat"
-    bat.AnchorPoint = Vector2.new(0.5, 0.5)
-    bat.Position = UDim2.fromScale(0.5, 0.5)
-    bat.Size = UDim2.fromScale(IS_MOBILE and 0.86 or 0.60, 0.55)
-    bat.BackgroundTransparency, bat.BorderSizePixel = 1, 0
-    bat.GroupTransparency, bat.Rotation = 1, -4
-    bat.Active, bat.Selectable, bat.ZIndex = false, false, 100
-    bat.Parent = parent
-    local aspect = Instance.new("UIAspectRatioConstraint")
-    aspect.AspectRatio = 1.65
-    aspect.AspectType = Enum.AspectType.FitWithinMaxSize
-    aspect.Parent = bat
-    local function polygon(name, points, top, bottom, rows)
-        local minY, maxY = 1, 0
-        for _, point in ipairs(points) do minY = math.min(minY, point[2]); maxY = math.max(maxY, point[2]) end
-        local step = (maxY - minY) / rows
-        for row = 0, rows - 1 do
-            local y, hits = minY + (row + 0.5) * step, {}
-            for i, point in ipairs(points) do
-                local nextPoint = points[i % #points + 1]
-                if (point[2] <= y and nextPoint[2] > y) or (nextPoint[2] <= y and point[2] > y) then
-                    hits[#hits + 1] = point[1] + (y - point[2]) * (nextPoint[1] - point[1]) / (nextPoint[2] - point[2])
-                end
-            end
-            table.sort(hits)
-            for i = 1, #hits - 1, 2 do
-                local strip = Instance.new("Frame")
-                strip.Name = name
-                strip.BorderSizePixel = 0
-                strip.BackgroundColor3 = top:Lerp(bottom, (y - minY) / (maxY - minY))
-                strip.Position = UDim2.fromScale(hits[i], minY + row * step)
-                strip.Size = UDim2.fromScale(hits[i + 1] - hits[i], step + 0.0005)
-                strip.Active, strip.Selectable, strip.ZIndex = false, false, 100
-                strip.Parent = bat
-            end
-        end
-    end
-    polygon("WingsAndBody", {{0.02,0.71},{0.12,0.59},{0.20,0.39},{0.27,0.49},
-        {0.37,0.56},{0.46,0.57},{0.47,0.52},{0.46,0.39},{0.49,0.43},{0.52,0.42},
-        {0.55,0.35},{0.56,0.44},{0.59,0.49},{0.66,0.39},{0.73,0.23},{0.75,0.06},
-        {0.82,0.09},{0.90,0.06},{0.98,0.02},{0.93,0.18},{0.90,0.32},{0.89,0.43},
-        {0.83,0.46},{0.79,0.52},{0.76,0.63},{0.70,0.66},{0.66,0.75},{0.64,0.95},
-        {0.57,0.86},{0.49,0.82},{0.43,0.83},{0.38,0.91},{0.35,0.85},{0.30,0.78},
-        {0.24,0.78},{0.20,0.83},{0.17,0.84},{0.14,0.77},{0.08,0.73}},
-        Color3.fromRGB(46, 42, 51), Color3.fromRGB(7, 7, 11), 112)
-    local edge = Color3.fromRGB(82, 73, 86)
-    local shadow = Color3.fromRGB(22, 20, 28)
-    polygon("LeftWingHighlight", {{0.20,0.39},{0.27,0.49},{0.37,0.56},{0.46,0.57},
-        {0.44,0.582},{0.36,0.575},{0.26,0.51},{0.20,0.42}}, edge, shadow, 30)
-    polygon("RightWingHighlight", {{0.75,0.06},{0.82,0.09},{0.90,0.06},{0.98,0.02},
-        {0.91,0.075},{0.82,0.105},{0.752,0.08}}, edge, shadow, 18)
-    local gold = Color3.fromRGB(237, 189, 13)
-    local yellow = Color3.fromRGB(255, 248, 62)
-    polygon("LeftEye", {{0.493,0.505},{0.523,0.550},{0.493,0.549}}, yellow, gold, 18)
-    polygon("RightEye", {{0.555,0.474},{0.576,0.488},{0.544,0.543}}, yellow, gold, 22)
-    return bat
-end
-
-local function playBatStartup(screenGui, onComplete)
-    local finished, started = false, false
-    local tweens, destruction = {}, nil
-    local splash = Instance.new("Frame")
-    splash.Name = "HalloweenBatIntro"
-    splash.Size = UDim2.fromScale(1, 1)
-    splash.BackgroundTransparency, splash.BorderSizePixel = 1, 0
-    splash.Active, splash.Selectable, splash.ZIndex = false, false, 100
-    splash.Parent = screenGui
-    local drawingOk, bat = pcall(drawBatSplash, splash)
-    if not drawingOk then
-        splash:Destroy()
-        task.defer(function()
-            if screenGui.Parent and not ScriptUnloaded then onComplete() end
-        end)
-        return function() end
-    end
-    local limit = Instance.new("UISizeConstraint")
-    limit.MaxSize = Vector2.new(600, 390)
-    limit.Parent = bat
-    local scale = Instance.new("UIScale")
-    scale.Scale = 0.88
-    scale.Parent = bat
-    local function isAlive()
-        return not finished and not ScriptUnloaded and screenGui.Parent ~= nil and splash.Parent ~= nil
-    end
-    local function finish(showWindow)
-        if finished then return end
-        finished = true
-        if destruction then destruction:Disconnect(); destruction = nil end
-        for _, tween in ipairs(tweens) do tween:Cancel() end
-        table.clear(tweens)
-        splash:Destroy()
-        if showWindow and not ScriptUnloaded and screenGui.Parent then onComplete() end
-    end
-    local function tween(object, seconds, properties)
-        local animation = TweenService:Create(object,
-            TweenInfo.new(seconds, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), properties)
-        tweens[#tweens + 1] = animation
-        animation:Play()
-        return animation
-    end
-    destruction = screenGui.Destroying:Connect(function() finish(false) end)
-    task.delay(5, function()
-        if not started then finish(true) end
-    end)
-    task.spawn(function()
-        local ok = pcall(function()
-            if not isAlive() then return end
-            started = true
-            tween(scale, 0.8, {Scale = 1})
-            tween(bat, 0.45, {GroupTransparency = 0, Rotation = 0}).Completed:Wait()
-            if not isAlive() then return end
-            task.wait(0.40)
-            if not isAlive() then return end
-            tween(scale, 0.65, {Scale = 1.06})
-            tween(bat, 0.65, {GroupTransparency = 1, Rotation = 2}).Completed:Wait()
-            if isAlive() then finish(true) end
-        end)
-        if not ok then finish(true) end
-    end)
-    return function() finish(false) end
-end
-
 local function createPumpkinBackground(parent)
     local pumpkin = Instance.new("ImageLabel")
     pumpkin.Name = "HalloweenPumpkin"
@@ -15999,7 +15875,6 @@ function NexusUI:CreateWindow(options)
     attachTextStyler(screenGui)
 
     local isVisibleByDefault = options == nil or options.visible ~= false
-    local startupPending, startupWanted = isVisibleByDefault, isVisibleByDefault
     local mainFrame = Instance.new("Frame")
     mainFrame.Name = "MainFrame"
     local requestedSize = options and options.Size or UDim2.fromOffset(620, 370)
@@ -16007,7 +15882,7 @@ function NexusUI:CreateWindow(options)
     local userResized = false
     mainFrame.Size = requestedSize
     mainFrame.Position = options and options.Position or UDim2.fromOffset(40, 40)
-    mainFrame.Visible = false
+    mainFrame.Visible = isVisibleByDefault
     mainFrame.BackgroundColor3 = Color3.new(1, 1, 1)
     windowGradient().Parent = mainFrame
     mainFrame.BackgroundTransparency = MAIN_WINDOW_TRANSPARENCY
@@ -16548,7 +16423,6 @@ function NexusUI:CreateWindow(options)
     end
 
     setVisible = function(visible)
-        if startupPending then startupWanted = visible == true; return end
         if visible then
             mainFrame.Visible = true
             animateWindowIn()
@@ -16572,7 +16446,6 @@ function NexusUI:CreateWindow(options)
 
     local function setCollapsed(value)
         isCollapsed = value
-        if startupPending then startupWanted = not value; return end
         mainFrame.Visible = not value
     end
 
@@ -17877,16 +17750,12 @@ function NexusUI:CreateWindow(options)
 
     track(userInputService.InputBegan:Connect(function(input, gameProcessed)
         if gameProcessed then return end
-        if input.KeyCode == toggleKey and not startupPending then
+        if input.KeyCode == toggleKey then
             window:SetVisible(not mainFrame.Visible)
         end
     end))
 
     local function updateRestoreVisibility()
-        if startupPending then
-            if restoreGui then restoreGui.Enabled = false end
-            return
-        end
         if not SHOW_RESTORE_BUTTON then
             if restoreGui then
                 restoreGui:Destroy()
@@ -17916,15 +17785,8 @@ function NexusUI:CreateWindow(options)
     if not isVisibleByDefault then
         setVisible(false)
     else
-        local cancelStartup = playBatStartup(screenGui, function()
-            startupPending = false
-            if startupWanted then
-                mainFrame.Visible = true
-                animateWindowIn()
-            end
-            updateRestoreVisibility()
-        end)
-        RegisterUnloadCallback(cancelStartup)
+        animateWindowIn()
+        updateRestoreVisibility()
     end
 
     local windowDestroyed = false
