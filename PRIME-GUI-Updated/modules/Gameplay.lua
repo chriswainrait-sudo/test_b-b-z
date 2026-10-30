@@ -1119,7 +1119,8 @@ do
     end
 end
 
-    local config = {StealDanger = false, InfiniteDribble = false, AutoDribble = false,
+    local perfectShotAllowed = IS_PREMIUM_USER == true
+    local config = {StealDanger = false, InfiniteDribble = false,
         SilentAimShot = false, AutoDunk = false, PerfectShot = false,
         ShotTrajectory = false, ShotArcControl = false, QuickRelease = false}
     local controllers, connections, roundConnections = {}, {}, {}
@@ -1127,8 +1128,7 @@ end
     local heartbeat, discoveryTask, dangerGui, dangerLabel
     local infinitePatch, throwPatch
 
-    local lastScan, lastThreatCheck, lastDribble = 0, 0, -math.huge
-    local actionBusy, actionEpoch = false, 0
+    local lastScan, lastThreatCheck = 0, 0
     local stealIds = {}
     local notified = {}
     local unpackArgs = table.unpack or unpack
@@ -1744,136 +1744,14 @@ end
             discoveryTask = nil
         end)
     end
-    local function actionAllowed(root, humanoid)
-        local state = states()
-        local character = LocalPlayer.Character
-        local ragdoll = character and character:FindFirstChild("IsRagdoll")
-        return root and humanoid and humanoid.Health > 0 and not (ragdoll and ragdoll.Value)
-            and not state.Shooting and not state.AimAssist and not state.Dunking and not state.Ability
-            and not state.Stunned and not state.PumpFake and not actionBusy
-    end
-    local adCons, adPlayers, adThreats = {}, {}, {}
-    local adBound, adButton = false, nil
-    local function tryDribble()
-        if not alive or not config.AutoDribble or actionBusy or not playing() or not hasBall() then return end
-        local _, root, hum = localParts()
-        if not actionAllowed(root, hum) or hum:GetState() == Enum.HumanoidStateType.Freefall then return end
-        local now = os.clock()
-        for char, t in pairs(adThreats) do
-            local p = Players:GetPlayerFromCharacter(char)
-            local er = char:FindFirstChild("HumanoidRootPart")
-            if now >= t.untilAt or not char.Parent or not er or not p or not opponent(p) then
-                adThreats[char] = nil
-            elseif not t.done and now >= t.nextAt and (root.Position - er.Position).Magnitude <= 20 then
-                local ball = controllers.BallController
-                if ball and type(ball.DribbleDB) == "number" and ball.DribbleDB > tick() then return end
-                if not adButton or not adButton.Parent then
-                    local mobile = PlayerGui:FindFirstChild("Mobile")
-                    local folder = mobile and mobile:FindFirstChild("Ball")
-                    adButton = findGuiButton("Dribble", folder and folder:FindFirstChild("Dribble"))
-                end
-                if not adButton then return end
-                t.nextAt = now + 0.04
-                local db, stamp = ball and ball.DribbleDB, values().DribblingTick
-                local epoch = actionEpoch
-                actionBusy = true
-                local ok = activateGuiButton(adButton)
-                if epoch == actionEpoch then actionBusy = false end
-                if epoch ~= actionEpoch or not alive then return end
-                if ok and (not ball or values().DribblingTick ~= stamp
-                    or not config.InfiniteDribble and ball.DribbleDB ~= db) then
-                    lastDribble = now
-                    for _, other in pairs(adThreats) do other.done = true end
-                end
-                return
-            end
-        end
-    end
-    local function onStealAnimation(char, age)
-        if not alive or not config.AutoDribble then return end
-        local p = Players:GetPlayerFromCharacter(char)
-        if not p or not opponent(p) then return end
-        local now = os.clock()
-        adThreats[char] = {untilAt = now + math.max(0, 0.45 - age), nextAt = 0, done = false}
-        tryDribble()
-    end
-    local function clearAdPlayer(p)
-        local r = adPlayers[p]
-        if not r then return end
-        disconnectAll(r.pc)
-        disconnectAll(r.cc)
-        if r.ac then r.ac:Disconnect() end
-        if r.char then adThreats[r.char] = nil end
-        adPlayers[p] = nil
-    end
-    local function bindAdPlayer(p)
-        if p == LocalPlayer or adPlayers[p] then return end
-        local r = {pc = {}, cc = {}}
-        adPlayers[p] = r
-        local function bindChar(char)
-            disconnectAll(r.cc)
-            if r.ac then r.ac:Disconnect() r.ac = nil end
-            if r.char then adThreats[r.char] = nil end
-            r.char, r.anim = char, nil
-            if not char then return end
-            local function played(track, existing)
-                local a = track.Animation
-                local id = a and a.AnimationId:match("%d+")
-                if not id or not stealIds[id] or track.Looped then return end
-                local age = existing and track.TimePosition / math.max(math.abs(track.Speed), 0.1) or 0
-                if age < 0.45 then onStealAnimation(char, age) end
-            end
-            local function bindAnim()
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                local anim = hum and hum:FindFirstChildOfClass("Animator")
-                if not anim or r.anim == anim then return end
-                if r.ac then r.ac:Disconnect() end
-                r.anim = anim
-                r.ac = anim.AnimationPlayed:Connect(function(track) played(track, false) end)
-                for _, track in ipairs(anim:GetPlayingAnimationTracks()) do
-                    if track.IsPlaying then played(track, true) end
-                end
-            end
-            connect(r.cc, char.DescendantAdded, function(v)
-                if v:IsA("Animator") or v:IsA("Humanoid") then bindAnim() end
-            end)
-            bindAnim()
-        end
-        connect(r.pc, p.CharacterAdded, bindChar)
-        connect(r.pc, p.CharacterRemoving, function() bindChar(nil) end)
-        bindChar(p.Character)
-    end
-    local function removeStealHook()
-        disconnectAll(adCons)
-        for p in pairs(adPlayers) do clearAdPlayer(p) end
-        table.clear(adThreats)
-        adBound, adButton = false, nil
-    end
-    local function updateStealHook()
-        if not config.AutoDribble then
-            if adBound then removeStealHook() end
-            return
-        end
-        if not adBound then
-            adBound = true
-            connect(adCons, Players.PlayerAdded, bindAdPlayer)
-            connect(adCons, Players.PlayerRemoving, clearAdPlayer)
-            for _, p in ipairs(Players:GetPlayers()) do bindAdPlayer(p) end
-        end
-        tryDribble()
-    end
-
     local function resetRound()
         -- Round transitions can replace controllers, signals or their Fire method.
         -- Keep the toggles enabled, but rebuild their runtime bindings.
         if discoveryTask then pcall(task.cancel, discoveryTask) discoveryTask = nil end
         removeSilentAim()
         removePerfectHook()
-        removeStealHook()
         table.clear(controllers)
-        actionEpoch = actionEpoch + 1
-        actionBusy = false
-        lastDribble, lastThreatCheck = -math.huge, 0
+        lastThreatCheck = 0
         if dangerLabel then dangerLabel.Visible = false end
         hideTrajectory()
         if infinitePatch then
@@ -1905,8 +1783,6 @@ end
     end
     local function stop()
         alive = false
-        actionEpoch = actionEpoch + 1
-        actionBusy = false
         if heartbeat then heartbeat:Disconnect() heartbeat = nil end
         if discoveryTask then pcall(task.cancel, discoveryTask) discoveryTask = nil end
         disconnectAll(connections)
@@ -1914,7 +1790,6 @@ end
         removeInfinite()
         removeSilentAim()
         removePerfectHook()
-        removeStealHook()
         removeDangerGui()
         removeTrajectory()
         table.clear(controllers)
@@ -1939,12 +1814,11 @@ end
             if now - lastScan >= 2 then
                 lastScan = now
                 if not controllers.BallController or not controllers.MovementController or not controllers.Network
-                    or ((config.SilentAimShot or config.PerfectShot or config.ShotArcControl or config.QuickRelease or config.AutoDribble) and not controllers.AbilityController) then discoverControllers() end
+                    or ((config.SilentAimShot or config.PerfectShot or config.ShotArcControl or config.QuickRelease) and not controllers.AbilityController) then discoverControllers() end
             end
             updateSilentAim()
             updateInfinite()
             updatePerfectHook()
-            updateStealHook()
             updateTrajectory(now)
 
             if now - lastThreatCheck < 0.04 then return end
@@ -1958,7 +1832,7 @@ end
         end)
     end
     local function setFeature(key, value)
-        config[key] = value == true and not ScriptUnloaded
+        config[key] = value == true and not ScriptUnloaded and (key ~= "PerfectShot" or perfectShotAllowed)
         if key == "AutoDunk" then setAutoDunk(config.AutoDunk) end
         if not (config.PerfectShot or config.ShotArcControl) then psReq, perfectShotLock = nil, nil end
         if not config.QuickRelease then
@@ -1971,7 +1845,6 @@ end
             updateInfinite()
             updateSilentAim()
             updatePerfectHook()
-            updateStealHook()
             if not config.StealDanger then removeDangerGui() end
         else stop() end
     end
@@ -1980,7 +1853,6 @@ end
     local controls = {
         {"StealDanger", "Steal Danger", "Warns about nearby enemies and incoming Steal animations"},
         {"InfiniteDribble", "Infinite Dribble", "Unlimited local Dribble uses with no series limit or cooldown"},
-        {"AutoDribble", "Auto Dribble", "Presses the game Dribble button when a nearby opposing player plays a Steal animation"},
         {"SilentAimShot", "Silent Aim", "Aims ordinary shot releases at your scoring hoop without moving the camera"},
         {"PerfectShot", "Perfect Shot", "Will not work with ping >120 ms or while using a VPN."},
         {"ShotTrajectory", "Shot Trajectory", "Preview the shot arc and estimated first landing point while holding the ball"},
@@ -1990,9 +1862,11 @@ end
     }
     for _, control in ipairs(controls) do
         local key, title, description = control[1], control[2], control[3]
-        Tabs.Main:AddToggle(key, {Title = title, Description = description, ShowDescription = key == "PerfectShot",
-            DescriptionColor = key == "PerfectShot" and Color3.fromRGB(255, 70, 70) or nil, Default = false,
-            Callback = function(value) setFeature(key, value) end})
+        if key ~= "PerfectShot" or perfectShotAllowed then
+            Tabs.Main:AddToggle(key, {Title = title, Description = description, ShowDescription = key == "PerfectShot",
+                DescriptionColor = key == "PerfectShot" and Color3.fromRGB(255, 70, 70) or nil, Default = false,
+                Callback = function(value) setFeature(key, value) end})
+        end
     end
     Tabs.Main:AddSlider("ShotArcHeight", {Title = "Shot Arc Height", Default = 10, Min = 3, Max = 30,
         Step = 1, Rounding = 0, Callback = function(value)
@@ -2257,228 +2131,7 @@ end
     end)
 end
 
--- BEGIN PRIME SMART SUPPORT v1
-do
-    -- BEGIN SUPPORT MATH (no Roblox dependencies)
-    local function finite(value)
-        return type(value) == "number" and value == value and math.abs(value) < math.huge
-    end
-    local function facingAllowed(dot, threshold)
-        return finite(dot) and finite(threshold) and dot >= threshold
-    end
-    -- END SUPPORT MATH
 
-    local config = {AutoSteal = false, StealRange = 12}
-    local controllers, connections = {}, {}
-    local heartbeat, discoveryTask
-    local generation, lastTick, lastDiscovery, nextSteal = 0, 0, -math.huge, 0
-    local running, actionBusy, warned = false, false, false
-    local function anyEnabled()
-        return config.AutoSteal
-    end
-    local function connect(signal, fn)
-        connections[#connections + 1] = signal:Connect(fn)
-    end
-    local function parts(player)
-        local character = player and player.Character
-        local root = character and character:FindFirstChild("HumanoidRootPart")
-        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-        if root and humanoid and humanoid.Health > 0 then return character, root, humanoid end
-    end
-    local function activePlayer(player)
-        return player and player.Team and not player.Neutral and player.Team.Name ~= "Visitor"
-    end
-    local function call(object, method)
-        if type(object) ~= "table" or type(object[method]) ~= "function" then return nil, false end
-        local ok, value = pcall(object[method], object)
-        return value, ok
-    end
-    local function playing()
-        if ScriptUnloaded or not activePlayer(LocalPlayer) then return false end
-        local values = ReplicatedStorage:FindFirstChild("GameValues")
-        local state = values and values:FindFirstChild("State")
-        if not state or state.Value ~= "Playing" then return false end
-        for _, name in ipairs({"Scoring", "TipOff", "PositionReset"}) do
-            local value = values:FindFirstChild(name)
-            if value and value.Value then return false end
-        end
-        local barrier = Workspace:FindFirstChild("BARRIER")
-        if barrier and barrier:IsA("BasePart") and barrier.CanCollide then return false end
-        return true
-    end
-    local function allowed(character, humanoid)
-        if not character or not humanoid or humanoid.Health <= 0 or humanoid.Sit
-            or userInputService:GetFocusedTextBox() then return false end
-        local camera = Workspace.CurrentCamera
-        if not camera or camera.CameraType == Enum.CameraType.Scriptable then return false end
-        local ragdoll = character:FindFirstChild("IsRagdoll")
-        if ragdoll and ragdoll:IsA("BoolValue") and ragdoll.Value then return false end
-        local movement = controllers.MovementController
-        local states = movement and movement.States
-        if type(states) ~= "table" then return false end
-        for _, name in ipairs({"Stunned", "Shooting", "AimAssist", "Dunking", "Ability", "PumpFake", "Stealing"}) do
-            if states[name] then return false end
-        end
-        local blocked, ok = call(controllers.BallController, "NoAction")
-        return ok and blocked == false
-    end
-    local function discover()
-        if discoveryTask or not running then return end
-        local epoch = generation
-        discoveryTask = task.defer(function()
-            local found = {}
-            local packages = ReplicatedStorage:FindFirstChild("Packages")
-            local knitModule = packages and packages:FindFirstChild("Knit")
-            if knitModule and knitModule:IsA("ModuleScript") then
-                local ok, knit = pcall(require, knitModule)
-                if ok and type(knit) == "table" and type(knit.GetController) == "function" then
-                    for _, name in ipairs({"BallController", "DefenseController", "MovementController"}) do
-                        local success, object = pcall(knit.GetController, name)
-                        if success and type(object) == "table" then found[name] = object end
-                    end
-                end
-            end
-            if (not found.BallController or not found.DefenseController or not found.MovementController)
-                and type(getgc) == "function" then
-                local ok, objects = pcall(getgc, true)
-                if ok and type(objects) == "table" then
-                    local signatures = {BallController = "GetPlayerPossessingBall",
-                        DefenseController = "Steal", MovementController = "States"}
-                    local visited = 0
-                    for _, object in pairs(objects) do
-                        if not running or generation ~= epoch then return end
-                        if type(object) == "table" then
-                            local name = rawget(object, "Name")
-                            local key = signatures[name]
-                            if key and not found[name] and type(rawget(object, key)) == (key == "States" and "table" or "function") then
-                                found[name] = object
-                            end
-                        end
-                        visited = visited + 1
-                        if visited % 2000 == 0 then task.wait() end
-                    end
-                end
-            end
-            if running and generation == epoch then
-                controllers = found
-                discoveryTask = nil
-            end
-        end)
-    end
-    local function lineClear(from, to, exclusions)
-        local params = RaycastParams.new()
-        params.FilterType = Enum.RaycastFilterType.Exclude
-        params.FilterDescendantsInstances = exclusions
-        params.IgnoreWater = true
-        return Workspace:Raycast(from, to - from, params) == nil
-    end
-    local function stealEligible(character, root, humanoid)
-        if not playing() or not allowed(character, humanoid) or humanoid.FloorMaterial == Enum.Material.Air then return false end
-        local ballController = controllers.BallController
-        local owner, ownerKnown = call(ballController, "GetPlayerPossessingBall")
-        if not ownerKnown or not activePlayer(owner) or owner == LocalPlayer or owner.Team == LocalPlayer.Team then return false end
-        -- These are the game's real local copies, not guesses based on animations.
-        local protected, known = call(ballController, "BallIFrameIsActive")
-        if not known or protected ~= false then return false end
-        local teamProtected, teamKnown = call(ballController, "BallTeamIFrameIsActive")
-        if not teamKnown or teamProtected ~= false then return false end
-        local enemy, enemyRoot = parts(owner)
-        if not enemyRoot then return false end
-        local delta = enemyRoot.Position - root.Position
-        if delta.Magnitude > config.StealRange or delta.Magnitude < 0.01 then return false end
-        local flat = Vector3.new(delta.X, 0, delta.Z)
-        if flat.Magnitude < 0.01 or not facingAllowed(root.CFrame.LookVector:Dot(flat.Unit), 0.35) then return false end
-        local ball = GetCurrentBall()
-        local exclusions = {character, enemy}
-        if ball then exclusions[#exclusions + 1] = ball end
-        return lineClear(root.Position, enemyRoot.Position, exclusions)
-    end
-    local function autoSteal(now, character, root, humanoid)
-        if not config.AutoSteal or actionBusy or now < nextSteal or not stealEligible(character, root, humanoid) then return end
-        local defense = controllers.DefenseController
-        if not defense or type(defense.Steal) ~= "function" then return end
-        actionBusy, nextSteal = true, now + 0.35
-        local epoch = generation
-        task.defer(function()
-            if running and generation == epoch and config.AutoSteal and LocalPlayer.Character == character
-                and stealEligible(character, root, humanoid) then
-                local ok = pcall(defense.Steal, defense)
-                local movement = controllers.MovementController
-                if ok and movement and movement.States.Stealing then
-                    -- Controller's own cooldown remains authoritative; throttle retries too.
-                    nextSteal = os.clock() + 0.8
-                end
-            end
-            if generation == epoch then actionBusy = false end
-        end)
-    end
-    local function reset()
-        generation = generation + 1
-        if discoveryTask then pcall(task.cancel, discoveryTask); discoveryTask = nil end
-        controllers, actionBusy, nextSteal, lastDiscovery = {}, false, 0, -math.huge
-    end
-    local function stop()
-        running = false
-        reset()
-        if heartbeat then heartbeat:Disconnect(); heartbeat = nil end
-        for _, connection in ipairs(connections) do connection:Disconnect() end
-        connections = {}
-    end
-    local function start()
-        if running or ScriptUnloaded then return end
-        running, warned, lastTick = true, false, 0
-        reset()
-        connect(LocalPlayer.CharacterAdded, reset)
-        connect(LocalPlayer.CharacterRemoving, reset)
-        connect(LocalPlayer:GetPropertyChangedSignal("Team"), reset)
-        local values = ReplicatedStorage:FindFirstChild("GameValues")
-        if values then
-            for _, name in ipairs({"State", "TipOff", "PositionReset"}) do
-                local value = values:FindFirstChild(name)
-                if value then connect(value:GetPropertyChangedSignal("Value"), reset) end
-            end
-        end
-        heartbeat = RunService.Heartbeat:Connect(function()
-            if ScriptUnloaded or not anyEnabled() then stop(); return end
-            local now = os.clock()
-            if now - lastTick < 0.08 then return end
-            lastTick = now
-            if not playing() then return end
-            if now - lastDiscovery >= 3 then lastDiscovery = now; discover() end
-            local character, root, humanoid = parts(LocalPlayer)
-            if not root then return end
-            local ok, err = pcall(function()
-                autoSteal(now, character, root, humanoid)
-            end)
-            if not ok and not warned then
-                warned = true
-                NexusUI:Notify({Title = "Smart Support", Content = "Feature error: " .. tostring(err), Duration = 5})
-            end
-        end)
-    end
-    Tabs.Main:AddSection("Smart Support", "Right")
-    for _, control in ipairs({
-        {"AutoSteal", "Smart Auto Steal", "Uses the ordinary Steal action only in range, facing the carrier and outside ball protection"},
-    }) do
-        local key = control[1]
-        Tabs.Main:AddToggle("PRIME_SS_" .. key, {Title = control[2], Description = control[3], Default = false,
-            Callback = function(value)
-                config[key] = value == true and not ScriptUnloaded
-                if anyEnabled() then start() else stop() end
-            end})
-    end
-    for _, control in ipairs({{"StealRange", "Auto Steal Range", 3, 15}}) do
-        local key = control[1]
-        Tabs.Main:AddSlider("PRIME_SS_" .. key, {Title = control[2], Default = config[key], Min = control[3], Max = control[4], Step = 1, Rounding = 0,
-            Callback = function(value) if finite(value) then config[key] = math.max(control[3], math.min(control[4], value)) end end})
-    end
-    Tabs.Main:SetActiveSection(MainSection)
-    RegisterUnloadCallback(function()
-        for _, key in ipairs({"AutoSteal"}) do config[key] = false end
-        stop()
-    end)
-end
--- END PRIME SMART SUPPORT v1
 
 
 -- Cosmetic selector (Additional)
