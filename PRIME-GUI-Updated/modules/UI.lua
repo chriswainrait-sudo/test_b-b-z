@@ -134,10 +134,10 @@ local FONT_TITLE = "rbxasset://fonts/families/Michroma.json"
 local function windowGradient()
     local g = Instance.new("UIGradient")
     g.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(38, 38, 41)),
-        ColorSequenceKeypoint.new(0.35, Color3.fromRGB(17, 17, 19)),
-        ColorSequenceKeypoint.new(0.75, Color3.fromRGB(8, 8, 9)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(14, 14, 16)),
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(58, 58, 58)),
+        ColorSequenceKeypoint.new(0.35, Color3.fromRGB(32, 32, 32)),
+        ColorSequenceKeypoint.new(0.75, Color3.fromRGB(15, 15, 15)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(3, 3, 3)),
     })
     g.Rotation = 35
     return g
@@ -350,7 +350,7 @@ function CreateClickButton(parent, text, size, position, bgColor, textColor, fon
     label.Parent = button
 
     local buttonCorner = Instance.new("UICorner")
-    buttonCorner.CornerRadius = UDim.new(0, 8)
+    buttonCorner.CornerRadius = UDim.new(0, 0)
     buttonCorner.Parent = button
 
     local defaultBackground = button.BackgroundColor3
@@ -488,7 +488,7 @@ function NexusUI:CreateWindow(options)
 
     local mainCorner = Instance.new("UICorner")
     mainCorner.Name = "NexusMainCorner"
-    mainCorner.CornerRadius = UDim.new(0, 18)
+    mainCorner.CornerRadius = UDim.new(0, 0)
     mainCorner.Parent = mainFrame
 
     local mainStroke = Instance.new("UIStroke")
@@ -497,7 +497,7 @@ function NexusUI:CreateWindow(options)
     mainStroke.Color = Color3.new(1, 1, 1)
     mainStroke.Transparency = 0.1
     mainStroke.Thickness = 1.2
-    mainStroke.LineJoinMode = Enum.LineJoinMode.Round
+    mainStroke.LineJoinMode = Enum.LineJoinMode.Miter
     mainStroke.Parent = mainFrame
     borderGradient().Parent = mainStroke
 
@@ -510,7 +510,7 @@ function NexusUI:CreateWindow(options)
     innerClip.Parent = mainFrame
 
     local innerCorner = Instance.new("UICorner")
-    innerCorner.CornerRadius = UDim.new(0, 18)
+    innerCorner.CornerRadius = UDim.new(0, 0)
     innerCorner.Parent = innerClip
 
     -- Soft light sheen across the top-left, like a glass panel.
@@ -583,7 +583,7 @@ function NexusUI:CreateWindow(options)
     topBar.Parent = innerClip
 
     local topBarCorner = Instance.new("UICorner")
-    topBarCorner.CornerRadius = UDim.new(0, 14)
+    topBarCorner.CornerRadius = UDim.new(0, 0)
     topBarCorner.Parent = topBar
 
     -- Hairline divider that fades out toward both edges.
@@ -860,7 +860,7 @@ function NexusUI:CreateWindow(options)
         dialog.Parent = closeConfirmGui
 
         local dialogCorner = Instance.new("UICorner")
-        dialogCorner.CornerRadius = UDim.new(0, 16)
+        dialogCorner.CornerRadius = UDim.new(0, 0)
         dialogCorner.Parent = dialog
 
         local dialogStroke = Instance.new("UIStroke")
@@ -1271,7 +1271,7 @@ function NexusUI:CreateWindow(options)
         tabUnderline.ZIndex = 4
         tabUnderline.Parent = tabButton
         local tabUnderlineCorner = Instance.new("UICorner")
-        tabUnderlineCorner.CornerRadius = UDim.new(1, 0)
+        tabUnderlineCorner.CornerRadius = UDim.new(0, 0)
         tabUnderlineCorner.Parent = tabUnderline
 
         -- Small green superscript badge, e.g. "NEW" on recently updated tabs.
@@ -1485,7 +1485,7 @@ function NexusUI:CreateWindow(options)
             switch.Parent = toggleFrame
 
             local switchCorner = Instance.new("UICorner")
-            switchCorner.CornerRadius = UDim.new(1, 0)
+            switchCorner.CornerRadius = UDim.new(0, 0)
             switchCorner.Parent = switch
 
             local switchStroke = Instance.new("UIStroke")
@@ -1519,7 +1519,7 @@ function NexusUI:CreateWindow(options)
             knob.Parent = switch
 
             local knobCorner = Instance.new("UICorner")
-            knobCorner.CornerRadius = UDim.new(1, 0)
+            knobCorner.CornerRadius = UDim.new(0, 0)
             knobCorner.Parent = knob
 
             local label = Instance.new("TextLabel")
@@ -1550,7 +1550,7 @@ function NexusUI:CreateWindow(options)
                 descriptionLabel.FontFace = Font.new(FONT_BODY, Enum.FontWeight.Regular, Enum.FontStyle.Normal)
                 descriptionLabel.TextXAlignment = Enum.TextXAlignment.Left
                 descriptionLabel.TextYAlignment = Enum.TextYAlignment.Top
-                NexusUI:BindColor(descriptionLabel, "TextColor3", function() return COLOR_TEXT_DIM end)
+                NexusUI:BindColor(descriptionLabel, "TextColor3", function() return data.DescriptionColor or COLOR_TEXT_DIM end)
                 descriptionLabel.Parent = toggleFrame
             end
 
@@ -1731,7 +1731,7 @@ function NexusUI:CreateWindow(options)
             track.Parent = frame
 
             local trackCorner = Instance.new("UICorner")
-            trackCorner.CornerRadius = UDim.new(1, 0)
+            trackCorner.CornerRadius = UDim.new(0, 0)
             trackCorner.Parent = track
 
             local fill = Instance.new("Frame")
@@ -1743,7 +1743,7 @@ function NexusUI:CreateWindow(options)
             fill.Parent = track
 
             local fillCorner = Instance.new("UICorner")
-            fillCorner.CornerRadius = UDim.new(1, 0)
+            fillCorner.CornerRadius = UDim.new(0, 0)
             fillCorner.Parent = fill
 
             local knob = Instance.new("Frame")
@@ -1758,7 +1758,7 @@ function NexusUI:CreateWindow(options)
             knob.Parent = track
 
             local knobCorner = Instance.new("UICorner")
-            knobCorner.CornerRadius = UDim.new(1, 0)
+            knobCorner.CornerRadius = UDim.new(0, 0)
             knobCorner.Parent = knob
 
             local value = data and data.Default or 0
@@ -1864,7 +1864,7 @@ function NexusUI:CreateWindow(options)
             dropdownFrame.Parent = getControlParent()
 
             local dropdownCorner = Instance.new("UICorner")
-            dropdownCorner.CornerRadius = UDim.new(0, 10)
+            dropdownCorner.CornerRadius = UDim.new(0, 0)
             dropdownCorner.Parent = dropdownFrame
 
             local dropdownStroke = Instance.new("UIStroke")
@@ -1911,7 +1911,7 @@ function NexusUI:CreateWindow(options)
             selectorAccent.Parent = selector
 
             local selectorAccentCorner = Instance.new("UICorner")
-            selectorAccentCorner.CornerRadius = UDim.new(1, 0)
+            selectorAccentCorner.CornerRadius = UDim.new(0, 0)
             selectorAccentCorner.Parent = selectorAccent
 
             local selectorPadding = Instance.new("UIPadding")
@@ -1953,7 +1953,7 @@ function NexusUI:CreateWindow(options)
             optionsList.Parent = dropdownFrame
 
             local optionsCorner = Instance.new("UICorner")
-            optionsCorner.CornerRadius = UDim.new(0, 8)
+            optionsCorner.CornerRadius = UDim.new(0, 0)
             optionsCorner.Parent = optionsList
 
             local optionsStroke = Instance.new("UIStroke")
@@ -2079,7 +2079,7 @@ function NexusUI:CreateWindow(options)
                     NexusUI:BindColor(optionAccent, "BackgroundColor3", function() return ACCENT end)
                     optionAccent.Parent = option
                     local optionAccentCorner = Instance.new("UICorner")
-                    optionAccentCorner.CornerRadius = UDim.new(1, 0)
+                    optionAccentCorner.CornerRadius = UDim.new(0, 0)
                     optionAccentCorner.Parent = optionAccent
                     local hovered, hoverTween = false, nil
                     local function color()
@@ -2170,7 +2170,7 @@ function NexusUI:CreateWindow(options)
             buttonFrame.Parent = getControlParent()
 
             local bCorner = Instance.new("UICorner")
-            bCorner.CornerRadius = UDim.new(0, 10)
+            bCorner.CornerRadius = UDim.new(0, 0)
             bCorner.Parent = buttonFrame
 
             local bStroke = Instance.new("UIStroke")
@@ -2408,7 +2408,7 @@ function NexusUI:Notify(options)
     frame.Parent = notifyGui
 
     local frameCorner = Instance.new("UICorner")
-    frameCorner.CornerRadius = UDim.new(0, 6)
+    frameCorner.CornerRadius = UDim.new(0, 0)
     frameCorner.Parent = frame
 
     local frameStroke = Instance.new("UIStroke")
@@ -2426,7 +2426,7 @@ function NexusUI:Notify(options)
     accentBar.Parent = frame
 
     local accentBarCorner = Instance.new("UICorner")
-    accentBarCorner.CornerRadius = UDim.new(1, 0)
+    accentBarCorner.CornerRadius = UDim.new(0, 0)
     accentBarCorner.Parent = accentBar
 
     local label = Instance.new("TextLabel")
@@ -2493,7 +2493,7 @@ keybindRow.LayoutOrder = 2
 keybindRow.Parent = SettingsSection.Content
 
 keybindRowCorner = Instance.new("UICorner")
-keybindRowCorner.CornerRadius = UDim.new(0, 10)
+keybindRowCorner.CornerRadius = UDim.new(0, 0)
 keybindRowCorner.Parent = keybindRow
 
 keybindTitle = Instance.new("TextLabel")
@@ -2529,7 +2529,7 @@ keybindBadge.ZIndex = 5
 keybindBadge.Parent = keybindRow
 
 keybindBadgeCorner = Instance.new("UICorner")
-keybindBadgeCorner.CornerRadius = UDim.new(0, 7)
+keybindBadgeCorner.CornerRadius = UDim.new(0, 0)
 keybindBadgeCorner.Parent = keybindBadge
 
 keybindBadgeStroke = Instance.new("UIStroke")
@@ -2790,7 +2790,7 @@ do
     nameRow.Parent = ConfigSection.Content
 
     local nameRowCorner = Instance.new("UICorner")
-    nameRowCorner.CornerRadius = UDim.new(0, 10)
+    nameRowCorner.CornerRadius = UDim.new(0, 0)
     nameRowCorner.Parent = nameRow
 
     local nameRowStroke = Instance.new("UIStroke")
