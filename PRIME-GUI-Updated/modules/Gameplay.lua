@@ -1119,7 +1119,6 @@ do
     end
 end
 
-    local perfectShotAllowed = IS_PREMIUM_USER == true
     local config = {StealDanger = false, InfiniteDribble = false,
         SilentAimShot = false, AutoDunk = false, PerfectShot = false,
         ShotTrajectory = false, ShotArcControl = false, QuickRelease = false}
@@ -1832,7 +1831,7 @@ end
         end)
     end
     local function setFeature(key, value)
-        config[key] = value == true and not ScriptUnloaded and (key ~= "PerfectShot" or perfectShotAllowed)
+        config[key] = value == true and not ScriptUnloaded
         if key == "AutoDunk" then setAutoDunk(config.AutoDunk) end
         if not (config.PerfectShot or config.ShotArcControl) then psReq, perfectShotLock = nil, nil end
         if not config.QuickRelease then
@@ -1862,11 +1861,9 @@ end
     }
     for _, control in ipairs(controls) do
         local key, title, description = control[1], control[2], control[3]
-        if key ~= "PerfectShot" or perfectShotAllowed then
-            Tabs.Main:AddToggle(key, {Title = title, Description = description, ShowDescription = key == "PerfectShot",
-                DescriptionColor = key == "PerfectShot" and Color3.fromRGB(255, 70, 70) or nil, Default = false,
-                Callback = function(value) setFeature(key, value) end})
-        end
+        Tabs.Main:AddToggle(key, {Title = title, Description = description, ShowDescription = key == "PerfectShot",
+            DescriptionColor = key == "PerfectShot" and Color3.fromRGB(255, 70, 70) or nil, Default = false,
+            Callback = function(value) setFeature(key, value) end})
     end
     Tabs.Main:AddSlider("ShotArcHeight", {Title = "Shot Arc Height", Default = 10, Min = 3, Max = 30,
         Step = 1, Rounding = 0, Callback = function(value)
