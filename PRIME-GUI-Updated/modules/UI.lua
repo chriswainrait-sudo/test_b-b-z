@@ -148,10 +148,10 @@ local function createImageBackground(parent)
     artwork.Name = "BackgroundArtwork"
     artwork.AnchorPoint = Vector2.new(0.5, 0.5)
     artwork.Position = UDim2.fromScale(0.5, 0.5)
-    artwork.Size = UDim2.fromScale(0.82, 0.90)
+    artwork.Size = UDim2.fromScale(1, 1)
     artwork.BackgroundTransparency, artwork.BorderSizePixel = 1, 0
     artwork.ImageTransparency = 0.78
-    artwork.ScaleType = Enum.ScaleType.Fit
+    artwork.ScaleType = Enum.ScaleType.Stretch
     artwork.Active, artwork.Selectable, artwork.ZIndex = false, false, 2
     artwork.Parent = parent
     task.defer(function()
