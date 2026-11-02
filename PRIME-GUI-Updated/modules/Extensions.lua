@@ -789,35 +789,18 @@ end
 
 
 do
-    local farm = {Enabled = false, Method = "Walk", Epoch = 0, Radius = 4.5, Lifetime = 45, Recent = setmetatable({}, {__mode = "k"})}
-    local Pathfinding = game:GetService("PathfindingService")
+    local farm = {Enabled = false, Epoch = 0, Lifetime = 45, Recent = setmetatable({}, {__mode = "k"})}
     local function active(epoch)
         return farm.Enabled and not ScriptUnloaded and farm.Epoch == epoch
     end
-    local function loadClient(module)
-        local read, write = getthreadidentity or getidentity, setthreadidentity or setidentity
-        local identity
-        if type(read) == "function" and type(write) == "function" then
-            local ok, value = pcall(read)
-            if ok then identity = value end
-        end
-        local result = table.pack(pcall(require, module))
-        if identity ~= nil then pcall(write, identity) end
-        return table.unpack(result, 1, result.n)
-    end
-    local function release()
-        if farm.Movement then farm.Movement:Disconnect(); farm.Movement = nil end
-        farm.Goal = nil
-        if farm.Blocked then farm.Blocked:Disconnect(); farm.Blocked = nil end
-        if farm.Path then pcall(farm.Path.Destroy, farm.Path); farm.Path = nil end
-        local humanoid, root = farm.Humanoid, farm.Root
-        farm.Humanoid, farm.Root = nil, nil
-        if humanoid and root and root.Parent and humanoid.Parent and humanoid.Health > 0 then
-            pcall(humanoid.Move, humanoid, Vector3.zero, false)
-        end
-        local controls, restore = farm.Controls, farm.RestoreControls
-        farm.Controls, farm.RestoreControls = nil, nil
-        if controls and restore then pcall(controls.Enable, controls) end
+    local function returnBack()
+        local trip = farm.Trip
+        farm.Trip = nil
+        if not trip or LocalPlayer.Character ~= trip.Character or not trip.Root.Parent or not trip.Humanoid.Parent or trip.Humanoid.Health <= 0 then return end
+        pcall(function()
+            trip.Root.CFrame = trip.Home
+            trip.Root.AssemblyLinearVelocity, trip.Root.AssemblyAngularVelocity = Vector3.zero, Vector3.zero
+        end)
     end
     local function stop()
         farm.Enabled = false
@@ -825,7 +808,8 @@ do
         local thread = farm.Thread
         farm.Thread = nil
         if type(thread) == "thread" and thread ~= coroutine.running() and coroutine.status(thread) ~= "dead" then pcall(task.cancel, thread) end
-        release()
+        if farm.Idle then farm.Idle:Disconnect(); farm.Idle = nil end
+        returnBack()
         table.clear(farm.Recent)
     end
     local function position(model, folder)
@@ -851,98 +835,26 @@ do
         end
         return best, point
     end
-    local function owns(epoch, character, humanoid, root, model, folder)
-        return active(epoch) and LocalPlayer.Character == character and humanoid.Parent and humanoid.Health > 0
-            and root.Parent and not root.Anchored and position(model, folder) ~= nil
-    end
-    local function takeControls(epoch)
-        local playerScripts = LocalPlayer:FindFirstChild("PlayerScripts")
-        local module = playerScripts and playerScripts:FindFirstChild("PlayerModule")
-        if not module then return active(epoch) end
-        local ok, playerModule = loadClient(module)
-        if not active(epoch) then return false end
-        if not ok or type(playerModule) ~= "table" or type(playerModule.GetControls) ~= "function" then return true end
-        local success, controls = pcall(playerModule.GetControls, playerModule)
-        if not active(epoch) then return false end
-        if success and controls and type(controls.Disable) == "function" and type(controls.Enable) == "function" then
-            farm.Controls = controls
-            farm.RestoreControls = controls.controlsEnabled ~= false
-            if farm.RestoreControls then controls:Disable() end
-        end
-        return active(epoch)
-    end
-    local function walk(epoch, character, humanoid, root, model, folder, target)
-        local function flat(point)
-            local delta = point - root.Position
-            return Vector3.new(delta.X, 0, delta.Z)
-        end
-        local function reached()
-            return flat(target).Magnitude <= math.min(2.8, farm.Radius * 0.65) and (root.Position - target).Magnitude <= farm.Radius
-        end
-        if reached() then return true end
-        local goal = Vector3.new(target.X, root.Position.Y, target.Z)
-        local path = Pathfinding:CreatePath({AgentRadius = 2, AgentHeight = 5, AgentCanJump = true})
-        farm.Path = path
-        local ok = pcall(path.ComputeAsync, path, root.Position, goal)
-        if not owns(epoch, character, humanoid, root, model, folder) then return false end
-        local points = ok and path.Status == Enum.PathStatus.Success and path:GetWaypoints() or {}
-        if #points == 0 then points = {{Position = goal}} end
-        if not takeControls(epoch) or not owns(epoch, character, humanoid, root, model, folder) then return false end
-        farm.Humanoid, farm.Root = humanoid, root
-        local index, blocked, arrived, jumped = 1, false, false, nil
-        local drive = Vector3.zero
-        farm.Blocked = path.Blocked:Connect(function(nextIndex) if nextIndex >= index then blocked = true end end)
-        farm.Movement = RunService.PreSimulation:Connect(function(dt)
-            if not owns(epoch, character, humanoid, root, model, folder) then return end
-            if arrived or blocked or reached() then
-                arrived = arrived or reached()
-                humanoid:Move(Vector3.zero, false)
-                return
-            end
-            dt = math.clamp(tonumber(dt) or 1 / 60, 1 / 240, 0.1)
-            local speed = math.max(humanoid.WalkSpeed, 4)
-            local tolerance = math.clamp(speed * dt * 1.2, 1.75, 3)
-            while index < #points and flat(points[index].Position).Magnitude <= tolerance do index = index + 1 end
-            local waypoint = points[index]
-            if waypoint.Action == Enum.PathWaypointAction.Jump and jumped ~= index then humanoid.Jump = true; jumped = index end
-            local delta = flat(waypoint.Position)
-            local gap = delta.Magnitude
-            local desired = gap > 0.1 and delta.Unit * math.min(1, gap / math.max(2, speed * 0.18)) or Vector3.zero
-            drive = drive:Lerp(desired, math.min(1, dt * 14))
-            humanoid:Move(drive, false)
-        end)
-        local deadline = os.clock() + math.clamp((root.Position - target).Magnitude / math.max(humanoid.WalkSpeed, 4) + 6, 6, 32)
-        local previous, progress, previousIndex = math.huge, os.clock(), index
-        while owns(epoch, character, humanoid, root, model, folder) do
-            if arrived or reached() then return true end
-            local now = os.clock()
-            if blocked or now >= deadline or now - progress > 2.5 then return false end
-            local gap = flat(points[index].Position).Magnitude
-            if index ~= previousIndex or gap < previous - 0.3 then previous, progress, previousIndex = gap, now, index end
-            task.wait(0.05)
-        end
-        return false
-    end
-    local function configure()
-        local shared = ReplicatedStorage:FindFirstChild("Shared")
-        local tables = shared and shared:FindFirstChild("Tables")
-        local module = tables and tables:FindFirstChild("Halloween")
-        if not module then return end
-        local ok, data = loadClient(module)
-        local pickups = ok and type(data) == "table" and data.Pickups
-        if type(pickups) == "table" then
-            farm.Radius = math.clamp(tonumber(pickups.CollectDistance) or 4.5, 1, 20)
-            farm.Lifetime = math.clamp(tonumber(pickups.Lifetime) or 45, 1, 300)
-        end
-    end
     local function start(enabled)
         stop()
         if not enabled or ScriptUnloaded then return end
         farm.Enabled = true
         local epoch = farm.Epoch
+        farm.Idle = LocalPlayer.Idled:Connect(function()
+            if not active(epoch) then return end
+            local ok = pcall(function()
+                local user = game:GetService("VirtualUser")
+                user:CaptureController()
+                local camera = Workspace.CurrentCamera
+                user:ClickButton2(Vector2.zero, camera and camera.CFrame or CFrame.identity)
+            end)
+            if not ok and not farm.IdleNotified then
+                farm.IdleNotified = true
+                NexusUI:Notify({Title = "Candy Farm", Content = "Anti-AFK is unavailable in this executor.", Duration = 5})
+            end
+        end)
         farm.Thread = task.defer(function()
             local ok, failure = pcall(function()
-                configure()
                 while active(epoch) do
                     local character = LocalPlayer.Character
                     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -951,32 +863,20 @@ do
                     if humanoid and humanoid.Health > 0 and root and not root.Anchored and not humanoid.Sit and folder then
                         local model, target = nearest(folder, root)
                         if model then
-                            local reached
-                            if farm.Method == "Teleport" then
-                                if owns(epoch, character, humanoid, root, model, folder) then
-                                    farm.Humanoid, farm.Root = humanoid, root
-                                    local point = position(model, folder)
-                                    humanoid:Move(Vector3.zero, false)
-                                    root.CFrame = CFrame.new(point) * root.CFrame.Rotation
-                                    root.AssemblyLinearVelocity, root.AssemblyAngularVelocity = Vector3.zero, Vector3.zero
-                                    reached = true
-                                end
-                            else
-                                reached = walk(epoch, character, humanoid, root, model, folder, target)
-                            end
-                            if not active(epoch) then return end
-                            farm.Goal = nil
-                            if farm.Humanoid and farm.Humanoid.Parent then farm.Humanoid:Move(Vector3.zero, false) end
-                            if reached and farm.Method == "Walk" then
-                                local untilTime = os.clock() + 1.2
-                                while owns(epoch, character, humanoid, root, model, folder) and os.clock() < untilTime do
-                                    if (root.Position - target).Magnitude > farm.Radius then break end
-                                    task.wait(0.1)
-                                end
-                            end
-                            if not active(epoch) then return end
-                            release()
-                            farm.Recent[model] = os.clock() + (reached and 3 or 5)
+                            local balance = tonumber(LocalPlayer:GetAttribute("HalloweenCandy")) or 0
+                            farm.Trip = {Character = character, Humanoid = humanoid, Root = root, Home = root.CFrame}
+                            humanoid:Move(Vector3.zero, false)
+                            root.CFrame = CFrame.new(target) * root.CFrame.Rotation
+                            root.AssemblyLinearVelocity, root.AssemblyAngularVelocity = Vector3.zero, Vector3.zero
+                            local deadline = os.clock() + 1.2
+                            repeat
+                                task.wait(0.05)
+                                if not active(epoch) then return end
+                                if LocalPlayer.Character ~= character or not root.Parent or humanoid.Health <= 0 then break end
+                                if not position(model, folder) or (tonumber(LocalPlayer:GetAttribute("HalloweenCandy")) or 0) > balance then break end
+                            until os.clock() >= deadline
+                            returnBack()
+                            farm.Recent[model] = os.clock() + 3
                         end
                     end
                     task.wait(0.2)
@@ -991,13 +891,12 @@ do
         end)
     end
     Tabs.EventsFarm:AddSection("Halloween")
-    Tabs.EventsFarm:AddDropdown("CandyFarmMethod", {Title = "Farm Method", Values = {"Walk", "Teleport"}, Default = "Walk", Callback = function(value)
-        farm.Method = value == "Teleport" and "Teleport" or "Walk"
-        if farm.Enabled then start(true) end
-    end})
-    Tabs.EventsFarm:AddToggle("AutoFarmCandy", {Title = "Auto Farm Candy", Default = false, Callback = start})
+    Tabs.EventsFarm:AddToggle("AutoFarmCandy", {
+        Title = "Auto Farm Candy", Default = false, ShowDescription = true,
+        Description = "You can use this feature without being in a round, quickly collect candy, and return to your original position (this way, you will not be noticed and the risk of a ban is minimal). Anti-AFK is also built in, so you can go about your business while farming candy!",
+        Callback = start
+    })
     RegisterUnloadCallback(stop)
 end
-
 
 end}
