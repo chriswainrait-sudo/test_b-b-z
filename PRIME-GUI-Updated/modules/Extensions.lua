@@ -788,4 +788,190 @@ do
 end
 
 
+do
+    local farm = {Enabled = false, Method = "Walk", Epoch = 0, Radius = 4.5, Lifetime = 45, Recent = setmetatable({}, {__mode = "k"})}
+    local Pathfinding = game:GetService("PathfindingService")
+    local function active(epoch)
+        return farm.Enabled and not ScriptUnloaded and farm.Epoch == epoch
+    end
+    local function loadClient(module)
+        local read, write = getthreadidentity or getidentity, setthreadidentity or setidentity
+        local identity
+        if type(read) == "function" and type(write) == "function" then
+            local ok, value = pcall(read)
+            if ok then identity = value end
+        end
+        local result = table.pack(pcall(require, module))
+        if identity ~= nil then pcall(write, identity) end
+        return table.unpack(result, 1, result.n)
+    end
+    local function release()
+        if farm.Blocked then farm.Blocked:Disconnect(); farm.Blocked = nil end
+        if farm.Path then pcall(farm.Path.Destroy, farm.Path); farm.Path = nil end
+        local humanoid, root = farm.Humanoid, farm.Root
+        farm.Humanoid, farm.Root = nil, nil
+        if humanoid and root and root.Parent and humanoid.Parent and humanoid.Health > 0 then
+            pcall(function() humanoid:Move(Vector3.zero, false); humanoid:MoveTo(root.Position) end)
+        end
+        local controls, restore = farm.Controls, farm.RestoreControls
+        farm.Controls, farm.RestoreControls = nil, nil
+        if controls and restore then pcall(controls.Enable, controls) end
+    end
+    local function stop()
+        farm.Enabled = false
+        farm.Epoch = farm.Epoch + 1
+        local thread = farm.Thread
+        farm.Thread = nil
+        if type(thread) == "thread" and thread ~= coroutine.running() and coroutine.status(thread) ~= "dead" then pcall(task.cancel, thread) end
+        release()
+        table.clear(farm.Recent)
+    end
+    local function position(model, folder)
+        if folder.Parent ~= Workspace or not model:IsA("Model") or model.Parent ~= folder or model:GetAttribute("RemovedAt") then return end
+        local part = model.PrimaryPart
+        if not part or not part:IsA("BasePart") or not part:IsDescendantOf(model) then return end
+        local born = model:GetAttribute("Born")
+        if type(born) == "number" and born == born then
+            local ok, now = pcall(Workspace.GetServerTimeNow, Workspace)
+            if ok and now - born >= farm.Lifetime then return end
+        end
+        local origin = model:GetAttribute("Origin")
+        return typeof(origin) == "Vector3" and origin or part.Position
+    end
+    local function nearest(folder, root)
+        local best, point, distance
+        local now = os.clock()
+        for _, model in ipairs(folder:GetChildren()) do
+            local target = position(model, folder)
+            if target and (farm.Recent[model] or 0) <= now then
+                local gap = (target - root.Position).Magnitude
+                if not distance or gap < distance then best, point, distance = model, target, gap end
+            end
+        end
+        return best, point
+    end
+    local function owns(epoch, character, humanoid, root, model, folder)
+        return active(epoch) and LocalPlayer.Character == character and humanoid.Parent and humanoid.Health > 0
+            and root.Parent and not root.Anchored and position(model, folder) ~= nil
+    end
+    local function takeControls(epoch)
+        local playerScripts = LocalPlayer:FindFirstChild("PlayerScripts")
+        local module = playerScripts and playerScripts:FindFirstChild("PlayerModule")
+        if not module then return active(epoch) end
+        local ok, playerModule = loadClient(module)
+        if not active(epoch) then return false end
+        if not ok or type(playerModule) ~= "table" or type(playerModule.GetControls) ~= "function" then return true end
+        local success, controls = pcall(playerModule.GetControls, playerModule)
+        if not active(epoch) then return false end
+        if success and controls and type(controls.Disable) == "function" and type(controls.Enable) == "function" then
+            farm.Controls = controls
+            farm.RestoreControls = controls.controlsEnabled ~= false
+            if farm.RestoreControls then controls:Disable() end
+        end
+        return active(epoch)
+    end
+    local function walk(epoch, character, humanoid, root, model, folder, target)
+        if (root.Position - target).Magnitude <= farm.Radius * 0.7 then return true end
+        local goal = Vector3.new(target.X, root.Position.Y, target.Z)
+        local path = Pathfinding:CreatePath({AgentRadius = 2, AgentHeight = 5, AgentCanJump = true})
+        farm.Path = path
+        local ok = pcall(path.ComputeAsync, path, root.Position, goal)
+        if not owns(epoch, character, humanoid, root, model, folder) then return false end
+        local points = ok and path.Status == Enum.PathStatus.Success and path:GetWaypoints() or {{Position = goal}}
+        if not takeControls(epoch) or not owns(epoch, character, humanoid, root, model, folder) then return false end
+        farm.Humanoid, farm.Root = humanoid, root
+        local index, blocked = 1, false
+        farm.Blocked = path.Blocked:Connect(function(nextIndex) if nextIndex >= index then blocked = true end end)
+        local deadline = os.clock() + math.clamp((root.Position - target).Magnitude / math.max(humanoid.WalkSpeed, 4) + 6, 6, 32)
+        for number, waypoint in ipairs(points) do
+            index = number
+            if not owns(epoch, character, humanoid, root, model, folder) or blocked then return false end
+            if waypoint.Action == Enum.PathWaypointAction.Jump then humanoid.Jump = true end
+            local previous, progress, issued = math.huge, os.clock(), 0
+            while owns(epoch, character, humanoid, root, model, folder) do
+                if (root.Position - target).Magnitude <= farm.Radius * 0.7 then return true end
+                local gap = (root.Position - waypoint.Position).Magnitude
+                if gap <= 2 then break end
+                local now = os.clock()
+                if blocked or now >= deadline or now - progress > 2.5 then return false end
+                if gap < previous - 0.3 then previous, progress = gap, now end
+                if now - issued >= 0.7 or issued == 0 then humanoid:MoveTo(waypoint.Position); issued = now end
+                task.wait(0.1)
+            end
+        end
+        return owns(epoch, character, humanoid, root, model, folder) and (root.Position - target).Magnitude <= farm.Radius
+    end
+    local function configure()
+        local shared = ReplicatedStorage:FindFirstChild("Shared")
+        local tables = shared and shared:FindFirstChild("Tables")
+        local module = tables and tables:FindFirstChild("Halloween")
+        if not module then return end
+        local ok, data = loadClient(module)
+        local pickups = ok and type(data) == "table" and data.Pickups
+        if type(pickups) == "table" then
+            farm.Radius = math.clamp(tonumber(pickups.CollectDistance) or 4.5, 1, 20)
+            farm.Lifetime = math.clamp(tonumber(pickups.Lifetime) or 45, 1, 300)
+        end
+    end
+    local function start(enabled)
+        stop()
+        if not enabled or ScriptUnloaded then return end
+        farm.Enabled = true
+        local epoch = farm.Epoch
+        farm.Thread = task.defer(function()
+            local ok, failure = pcall(function()
+                configure()
+                while active(epoch) do
+                    local character = LocalPlayer.Character
+                    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+                    local root = character and character:FindFirstChild("HumanoidRootPart")
+                    local folder = Workspace:FindFirstChild("HalloweenCandy")
+                    if humanoid and humanoid.Health > 0 and root and not root.Anchored and not humanoid.Sit and folder then
+                        local model, target = nearest(folder, root)
+                        if model then
+                            local reached
+                            if farm.Method == "Teleport" then
+                                if owns(epoch, character, humanoid, root, model, folder) then
+                                    humanoid:Move(Vector3.zero, false)
+                                    root.CFrame = CFrame.new(target + Vector3.new(0, 0.5, 0)) * root.CFrame.Rotation
+                                    root.AssemblyLinearVelocity, root.AssemblyAngularVelocity = Vector3.zero, Vector3.zero
+                                    reached = true
+                                end
+                            else
+                                reached = walk(epoch, character, humanoid, root, model, folder, target)
+                            end
+                            if not active(epoch) then return end
+                            release()
+                            if reached then
+                                local untilTime = os.clock() + 1.2
+                                while owns(epoch, character, humanoid, root, model, folder) and os.clock() < untilTime do
+                                    if (root.Position - target).Magnitude > farm.Radius then break end
+                                    task.wait(0.1)
+                                end
+                            end
+                            if not active(epoch) then return end
+                            farm.Recent[model] = os.clock() + (reached and 3 or 5)
+                        end
+                    end
+                    task.wait(0.2)
+                end
+            end)
+            if active(epoch) and not ok then
+                stop()
+                local option = NexusUI.Options.AutoFarmCandy
+                if option then option:SetValue(false) end
+                NexusUI:Notify({Title = "Candy Farm", Content = tostring(failure), Duration = 5})
+            end
+        end)
+    end
+    Tabs.EventsFarm:AddSection("Halloween")
+    Tabs.EventsFarm:AddDropdown("CandyFarmMethod", {Title = "Farm Method", Values = {"Walk", "Teleport"}, Default = "Walk", Callback = function(value)
+        farm.Method = value == "Teleport" and "Teleport" or "Walk"
+        if farm.Enabled then start(true) end
+    end})
+    Tabs.EventsFarm:AddToggle("AutoFarmCandy", {Title = "Auto Farm Candy", Default = false, Callback = start})
+    RegisterUnloadCallback(stop)
+end
+
+
 end}
