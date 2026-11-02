@@ -877,7 +877,7 @@ do
             return Vector3.new(delta.X, 0, delta.Z)
         end
         local function reached()
-            return flat(target).Magnitude <= 0.85 and (root.Position - target).Magnitude <= farm.Radius
+            return flat(target).Magnitude <= math.min(2.8, farm.Radius * 0.65) and (root.Position - target).Magnitude <= farm.Radius
         end
         if reached() then return true end
         local goal = Vector3.new(target.X, root.Position.Y, target.Z)
@@ -885,34 +885,43 @@ do
         farm.Path = path
         local ok = pcall(path.ComputeAsync, path, root.Position, goal)
         if not owns(epoch, character, humanoid, root, model, folder) then return false end
-        local points = ok and path.Status == Enum.PathStatus.Success and path:GetWaypoints() or {{Position = goal}}
+        local points = ok and path.Status == Enum.PathStatus.Success and path:GetWaypoints() or {}
+        if #points == 0 then points = {{Position = goal}} end
         if not takeControls(epoch) or not owns(epoch, character, humanoid, root, model, folder) then return false end
         farm.Humanoid, farm.Root = humanoid, root
-        farm.Movement = RunService.PreSimulation:Connect(function()
-            if not owns(epoch, character, humanoid, root, model, folder) then return end
-            local direction = farm.Goal and flat(farm.Goal) or Vector3.zero
-            humanoid:Move(direction.Magnitude > 0.35 and direction.Unit or Vector3.zero, false)
-        end)
-        local index, blocked = 1, false
+        local index, blocked, arrived, jumped = 1, false, false, nil
+        local drive = Vector3.zero
         farm.Blocked = path.Blocked:Connect(function(nextIndex) if nextIndex >= index then blocked = true end end)
-        local deadline = os.clock() + math.clamp((root.Position - target).Magnitude / math.max(humanoid.WalkSpeed, 4) + 6, 6, 32)
-        for number, waypoint in ipairs(points) do
-            index = number
-            if not owns(epoch, character, humanoid, root, model, folder) or blocked then return false end
-            if waypoint.Action == Enum.PathWaypointAction.Jump then humanoid.Jump = true end
-            farm.Goal = waypoint.Position
-            local previous, progress = math.huge, os.clock()
-            while owns(epoch, character, humanoid, root, model, folder) do
-                if reached() then return true end
-                local gap = flat(waypoint.Position).Magnitude
-                if gap <= (number == #points and 0.85 or 1.75) then break end
-                local now = os.clock()
-                if blocked or now >= deadline or now - progress > 2.5 then return false end
-                if gap < previous - 0.3 then previous, progress = gap, now end
-                task.wait(0.1)
+        farm.Movement = RunService.PreSimulation:Connect(function(dt)
+            if not owns(epoch, character, humanoid, root, model, folder) then return end
+            if arrived or blocked or reached() then
+                arrived = arrived or reached()
+                humanoid:Move(Vector3.zero, false)
+                return
             end
+            dt = math.clamp(tonumber(dt) or 1 / 60, 1 / 240, 0.1)
+            local speed = math.max(humanoid.WalkSpeed, 4)
+            local tolerance = math.clamp(speed * dt * 1.2, 1.75, 3)
+            while index < #points and flat(points[index].Position).Magnitude <= tolerance do index = index + 1 end
+            local waypoint = points[index]
+            if waypoint.Action == Enum.PathWaypointAction.Jump and jumped ~= index then humanoid.Jump = true; jumped = index end
+            local delta = flat(waypoint.Position)
+            local gap = delta.Magnitude
+            local desired = gap > 0.1 and delta.Unit * math.min(1, gap / math.max(2, speed * 0.18)) or Vector3.zero
+            drive = drive:Lerp(desired, math.min(1, dt * 14))
+            humanoid:Move(drive, false)
+        end)
+        local deadline = os.clock() + math.clamp((root.Position - target).Magnitude / math.max(humanoid.WalkSpeed, 4) + 6, 6, 32)
+        local previous, progress, previousIndex = math.huge, os.clock(), index
+        while owns(epoch, character, humanoid, root, model, folder) do
+            if arrived or reached() then return true end
+            local now = os.clock()
+            if blocked or now >= deadline or now - progress > 2.5 then return false end
+            local gap = flat(points[index].Position).Magnitude
+            if index ~= previousIndex or gap < previous - 0.3 then previous, progress, previousIndex = gap, now, index end
+            task.wait(0.05)
         end
-        return owns(epoch, character, humanoid, root, model, folder) and reached()
+        return false
     end
     local function configure()
         local shared = ReplicatedStorage:FindFirstChild("Shared")
@@ -946,16 +955,10 @@ do
                             if farm.Method == "Teleport" then
                                 if owns(epoch, character, humanoid, root, model, folder) then
                                     farm.Humanoid, farm.Root = humanoid, root
-                                    local rotation = root.CFrame.Rotation
-                                    local function align()
-                                        if not owns(epoch, character, humanoid, root, model, folder) then return end
-                                        local point = position(model, folder)
-                                        humanoid:Move(Vector3.zero, false)
-                                        root.CFrame = CFrame.new(point) * rotation
-                                        root.AssemblyLinearVelocity, root.AssemblyAngularVelocity = Vector3.zero, Vector3.zero
-                                    end
-                                    align()
-                                    farm.Movement = RunService.PreSimulation:Connect(align)
+                                    local point = position(model, folder)
+                                    humanoid:Move(Vector3.zero, false)
+                                    root.CFrame = CFrame.new(point) * root.CFrame.Rotation
+                                    root.AssemblyLinearVelocity, root.AssemblyAngularVelocity = Vector3.zero, Vector3.zero
                                     reached = true
                                 end
                             else
@@ -964,7 +967,7 @@ do
                             if not active(epoch) then return end
                             farm.Goal = nil
                             if farm.Humanoid and farm.Humanoid.Parent then farm.Humanoid:Move(Vector3.zero, false) end
-                            if reached then
+                            if reached and farm.Method == "Walk" then
                                 local untilTime = os.clock() + 1.2
                                 while owns(epoch, character, humanoid, root, model, folder) and os.clock() < untilTime do
                                     if (root.Position - target).Magnitude > farm.Radius then break end
