@@ -2230,6 +2230,8 @@ end
             Callback = function(value) setFeature(key, value) end})
     end
     Tabs.EventsFarm:AddToggle("BallManipulation", {Title = "Ball Manipulation", Default = false,
+        ShowDescription = true, Description = "Will not work with ping >120 ms or while using a VPN.",
+        DescriptionColor = Color3.fromRGB(255, 70, 70),
         Callback = function(value) setFeature("BallManipulation", value) end})
     Tabs.Main:AddSlider("ShotArcHeight", {Title = "Shot Arc Height", Default = 10, Min = 3, Max = 30,
         Step = 1, Rounding = 0, Callback = function(value)
