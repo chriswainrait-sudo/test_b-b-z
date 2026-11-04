@@ -1325,7 +1325,7 @@ do
 end
 
     local config = {StealDanger = false, InfiniteDribble = false,
-        SilentAimShot = false, AutoDunk = false, PerfectShot = false, BallManipulation = false,
+        SilentAimShot = false, AutoDunk = false, PerfectShot = false, RagePerfectShot = false, SlowBall = false, BallManipulation = false,
         ShotTrajectory = false, ShotArcControl = false, QuickRelease = false}
     local controllers, connections, roundConnections = {}, {}, {}
     local alive = false
@@ -1347,7 +1347,7 @@ end
         table.clear(list)
     end
     local function anyEnabled()
-        for key, value in pairs(config) do if key ~= "AutoDunk" and value then return true end end
+        for key, value in pairs(config) do if key ~= "AutoDunk" and key ~= "SlowBall" and value then return true end end
         return false
     end
     local function mutable(object)
@@ -1557,6 +1557,7 @@ end
         if hasBall() then resetDribbleCounters(infinitePatch) end
     end
     local psReq, psSignal, psNext = nil, nil, 0
+    local psEpoch = 0
     local shotArcHeight = 10
     local quickEpoch, quickPending, quickSkip = 0, false, 0
     local psHooks = {}
@@ -1677,8 +1678,81 @@ end
         flight.Ball.AssemblyLinearVelocity = direction * flight.Speed + Vector3.new(0, Workspace.Gravity * math.min(dt, 0.05) * 0.5, 0)
     end))
 
+
+    local guidedShot
+    local function stopGuidedShot()
+        local shot = guidedShot
+        guidedShot = nil
+        if shot and perfectShotLock == shot.Lock then perfectShotLock = nil end
+    end
+    local function guidedMode()
+        if IS_PREMIUM_USER ~= true then return end
+        if config.RagePerfectShot then return "Rage" end
+        if config.PerfectShot and config.SlowBall then return "Slow" end
+    end
+    local function startGuidedShot(request, mode)
+        stopGuidedShot()
+        if request.epoch ~= psEpoch or mode ~= guidedMode() or not ballOwned() then return false end
+        local ball, hoop = request.ball, request.hoop
+        local start, finish = ball.Position, hoop.Position + Vector3.new(0, 3, 0)
+        local distance = (finish - start).Magnitude
+        local height = math.max(start.Y, finish.Y) + (config.ShotArcControl and shotArcHeight or math.clamp(distance * 0.04, 3, 16)) + 6
+        local controlA = Vector3.new(start.X, height, start.Z)
+        local controlB = Vector3.new(finish.X, height, finish.Z)
+        local points, length, previous = {{Position = start, Distance = 0}}, 0, start
+        for i = 1, 40 do
+            local t, u = i / 40, 1 - i / 40
+            local point = start * (u * u * u) + controlA * (3 * u * u * t) + controlB * (3 * u * t * t) + finish * (t * t * t)
+            length = length + (point - previous).Magnitude
+            points[#points + 1], previous = {Position = point, Distance = length}, point
+        end
+        local curveLength = length
+        local target = hoop.Position - Vector3.new(0, 4, 0)
+        length = length + (target - previous).Magnitude
+        points[#points + 1] = {Position = target, Distance = length}
+        local shot = {Ball = ball, Hoop = hoop, Character = request.char, Team = LocalPlayer.Team, Mode = mode,
+            Started = os.clock(), Length = length, CurveLength = curveLength, Above = finish, Progress = 0, Index = 1, Points = points, Epoch = psEpoch,
+            Deadline = os.clock() + (mode == "Slow" and length / 2 + 15 or 10)}
+        shot.Lock = {ball = ball, expires = shot.Deadline}
+        guidedShot, perfectShotLock = shot, shot.Lock
+        return true
+    end
+    TrackScriptConnection(RunService.PreSimulation:Connect(function(dt)
+        local shot = guidedShot
+        if not shot then return end
+        local character, _, humanoid = localParts()
+        if not alive or ScriptUnloaded or guidedMode() ~= shot.Mode or shot.Epoch ~= psEpoch or not playing()
+            or character ~= shot.Character or not humanoid or humanoid.Health <= 0 or LocalPlayer.Team ~= shot.Team
+            or GetCurrentBall() ~= shot.Ball or not shot.Ball.Parent or shot.Ball.Anchored or targetHoop() ~= shot.Hoop
+            or not shot.Hoop.Parent or os.clock() > shot.Deadline or not ballOwned() then stopGuidedShot(); return end
+        local controller = controllers.BallController
+        local ok, holder = pcall(controller.GetPlayerPossessingBall, controller)
+        if not ok or holder and (holder ~= LocalPlayer or shot.Released or os.clock() - shot.Started > 0.4) then stopGuidedShot(); return end
+        if holder then return end
+        shot.Released = true
+        dt = math.clamp(dt or 1 / 60, 1 / 240, 1 / 15)
+        local speed = shot.Mode == "Slow" and 2 or 800
+        if shot.Mode == "Rage" and (shot.Ball.Position - shot.Hoop.Position).Magnitude < 14 then speed = 160 end
+        if not shot.Drop and (shot.Ball.Position - shot.Above).Magnitude <= 0.15 then shot.Drop, shot.Progress = true, shot.CurveLength end
+        local progress = math.min(shot.Drop and shot.Length or shot.CurveLength, shot.Progress + speed * dt)
+        local points, index = shot.Points, shot.Index
+        while index < #points - 1 and points[index + 1].Distance < progress do index = index + 1 end
+        local first, last = points[index], points[index + 1]
+        local alpha = math.clamp((progress - first.Distance) / math.max(last.Distance - first.Distance, 0.0001), 0, 1)
+        local target = first.Position + (last.Position - first.Position) * alpha
+        local delta = target - shot.Ball.Position
+        if progress >= shot.Length and delta.Magnitude < 0.3 then stopGuidedShot(); return end
+        local velocity = delta / dt
+        if velocity.Magnitude > speed then velocity = velocity.Unit * speed end
+        shot.Ball.AssemblyLinearVelocity = velocity + Vector3.new(0, Workspace.Gravity * dt * 0.5, 0)
+        if delta.Magnitude <= speed * dt * 1.25 then shot.Progress, shot.Index = progress, index end
+    end))
+
     local function clearPerfect()
-        psReq, perfectShotLock = nil, nil
+        psEpoch = psEpoch + 1
+        stopGuidedShot()
+        psReq = nil
+        if not bmFlight then perfectShotLock = nil end
         quickEpoch = quickEpoch + 1
         quickPending, quickSkip = false, 0
     end
@@ -1725,7 +1799,7 @@ end
                 end
             end
             local r = psReq
-            local valid = alive and not config.BallManipulation and (config.PerfectShot or config.ShotArcControl) and r and typeof(destination) == "Vector3"
+            local valid = alive and not config.BallManipulation and ((config.PerfectShot or config.RagePerfectShot) or config.ShotArcControl) and r and r.epoch == psEpoch and typeof(destination) == "Vector3"
                 and os.clock() <= r.expires and playing() and LocalPlayer.Character == r.char
                 and GetCurrentBall() == r.ball and targetHoop() == r.hoop
                 and r.ball.Parent and r.hoop.Parent
@@ -1738,14 +1812,20 @@ end
             end
             if not valid then return fn(destination, ...) end
             psReq = nil
-            local target = config.PerfectShot and r.hoop.Position or destination
+            local epoch, mode = psEpoch, guidedMode()
+            local target = (config.PerfectShot or config.RagePerfectShot) and r.hoop.Position or destination
             local result = table.pack(fn(target, ...))
-            if alive and (config.PerfectShot or config.ShotArcControl) and GetCurrentBall() == r.ball
+            if alive and ((config.PerfectShot or config.RagePerfectShot) or config.ShotArcControl) and GetCurrentBall() == r.ball
                 and LocalPlayer.Character == r.char and not r.ball.Anchored then
-                local ok, velocity, seconds = pcall(psVelocity, r.ball, target)
-                if ok and velocity then
-                    r.ball.AssemblyLinearVelocity = velocity
-                    perfectShotLock = {ball = r.ball, expires = os.clock() + seconds + 0.2}
+                if epoch == psEpoch and r.epoch == psEpoch and mode == guidedMode() then
+                    if mode then startGuidedShot(r, mode)
+                    else
+                        local ok, velocity, seconds = pcall(psVelocity, r.ball, target)
+                        if ok and velocity then
+                            r.ball.AssemblyLinearVelocity = velocity
+                            perfectShotLock = {ball = r.ball, expires = os.clock() + seconds + 0.2}
+                        end
+                    end
                 end
             end
             return unpackArgs(result, 1, result.n)
@@ -1768,7 +1848,7 @@ end
         if ok then return value end
     end
     local function updatePerfectHook()
-        if not (config.PerfectShot or config.ShotArcControl or config.BallManipulation) then
+        if not ((config.PerfectShot or config.RagePerfectShot) or config.ShotArcControl or config.BallManipulation) then
             if psSignal or #psHooks > 0 then removePerfectHook() end
             return
         end
@@ -1902,14 +1982,14 @@ end
         local handBall = anims and anims:FindFirstChild("BALL")
         local origin = handBall and handBall:IsA("BasePart") and handBall.Position or ball.Position
         local target = hoop.Position
-        if not (config.PerfectShot or config.SilentAimShot) then
+        if not ((config.PerfectShot or config.RagePerfectShot) or config.SilentAimShot) then
             local facing = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
             if facing.Magnitude < 0.001 then hideTrajectory(); return end
             local distance = Vector3.new(target.X - origin.X, 0, target.Z - origin.Z).Magnitude
             target = origin + facing.Unit * distance + Vector3.new(0, target.Y - origin.Y, 0)
         end
         local velocity, flight
-        if config.PerfectShot or config.ShotArcControl then
+        if (config.PerfectShot or config.RagePerfectShot) or config.ShotArcControl then
             velocity, flight = psVelocity({Position = origin}, target)
         else
             local delta = target - origin
@@ -1978,7 +2058,7 @@ end
     local function updateSilentAim()
         local ability = controllers.AbilityController
         local signal = ability and ability.BallService and ability.BallService.Throw
-        if not (config.SilentAimShot or config.PerfectShot or config.ShotArcControl or config.QuickRelease or config.BallManipulation) or not mutable(signal) then removeSilentAim() return end
+        if not (config.SilentAimShot or (config.PerfectShot or config.RagePerfectShot) or config.ShotArcControl or config.QuickRelease or config.BallManipulation) or not mutable(signal) then removeSilentAim() return end
         if throwPatch and throwPatch.object == signal and rawget(signal, "Fire") == throwPatch.wrapper then return end
         removeSilentAim()
         local original = signal.Fire
@@ -2020,19 +2100,20 @@ end
                     bmPending = {ball = ball, char = LocalPlayer.Character, expires = os.clock() + 7, epoch = bmEpoch}
                 end
             end
-            if alive and not config.BallManipulation and self == signal and (config.SilentAimShot or config.PerfectShot or config.ShotArcControl)
+            if alive and not config.BallManipulation and self == signal and (config.SilentAimShot or (config.PerfectShot or config.RagePerfectShot) or config.ShotArcControl)
                 and typeof(args[1]) == "Vector2" and args[2] ~= true and not s.Dunking
                 and not s.Ability and not s.PumpFake and (s.Shooting or s.AimAssist) then
                 local char, root = localParts()
                 local hoop, ball = targetHoop(), GetCurrentBall()
-                if root and hoop and (config.SilentAimShot or config.PerfectShot) then
+                if root and hoop and (config.SilentAimShot or (config.PerfectShot or config.RagePerfectShot)) then
                     local d = hoop.Position - root.Position
                     local dir = Vector2.new(d.X, d.Z)
                     if dir.Magnitude > 0.01 then args[1] = dir.Unit end
                 end
-                if (config.PerfectShot or config.ShotArcControl) and #psHooks > 0 and playing() and hasBall() and ball and hoop then
+                if ((config.PerfectShot or config.RagePerfectShot) or config.ShotArcControl) and #psHooks > 0 and playing() and hasBall() and ball and hoop then
+                    stopGuidedShot()
                     psReq, perfectShotLock = nil, nil
-                    psReq = {ball = ball, hoop = hoop, char = char, expires = os.clock() + 7}
+                    psReq = {ball = ball, hoop = hoop, char = char, expires = os.clock() + 7, epoch = psEpoch}
                 end
             end
             return original(self, unpackArgs(args, 1, args.n))
@@ -2158,7 +2239,7 @@ end
             if now - lastScan >= 2 then
                 lastScan = now
                 if not controllers.BallController or not controllers.MovementController or not controllers.Network
-                    or ((config.SilentAimShot or config.PerfectShot or config.ShotArcControl or config.QuickRelease or config.BallManipulation) and not controllers.AbilityController) then discoverControllers() end
+                    or ((config.SilentAimShot or (config.PerfectShot or config.RagePerfectShot) or config.ShotArcControl or config.QuickRelease or config.BallManipulation) and not controllers.AbilityController) then discoverControllers() end
             end
             updateSilentAim()
             updateInfinite()
@@ -2176,17 +2257,30 @@ end
         end)
     end
     local function setFeature(key, value)
-        if key == "BallManipulation" and IS_PREMIUM_USER ~= true then value = false end
+        local previousGuided = guidedShot
+        if (key == "BallManipulation" or key == "RagePerfectShot" or key == "SlowBall") and IS_PREMIUM_USER ~= true then value = false end
         config[key] = value == true and not ScriptUnloaded
-        if config[key] and (key == "PerfectShot" or key == "BallManipulation") then
-            local other = key == "PerfectShot" and "BallManipulation" or "PerfectShot"
-            config[other] = false
-            local option = NexusUI.Options[other]
-            if option and option.Value then option:SetValue(false) end
+        if key == "PerfectShot" or key == "RagePerfectShot" or key == "BallManipulation" or key == "SlowBall" and config.PerfectShot or key == "ShotArcControl" then clearPerfect() end
+        if config[key] and (key == "PerfectShot" or key == "RagePerfectShot" or key == "BallManipulation") then
+            for _, other in ipairs({"PerfectShot", "RagePerfectShot", "BallManipulation"}) do
+                if other ~= key then
+                    config[other] = false
+                    local option = NexusUI.Options[other]
+                    if option and option.Value then option:SetValue(false) end
+                end
+            end
         end
         if not config.BallManipulation then stopBallFlight() end
+        if key == "SlowBall" and previousGuided and previousGuided.Mode == "Slow" and not config.SlowBall and config.PerfectShot and not config.RagePerfectShot
+            and alive and playing() and ballOwned() and not hasBall() then
+            local ball, hoop = GetCurrentBall(), targetHoop()
+            if ball and hoop and not ball.Anchored then
+                local ok, velocity, seconds = pcall(psVelocity, ball, hoop.Position)
+                if ok and velocity then ball.AssemblyLinearVelocity = velocity; perfectShotLock = {ball = ball, expires = os.clock() + seconds + 0.2} end
+            end
+        end
         if key == "AutoDunk" then setAutoDunk(config.AutoDunk) end
-        if not (config.PerfectShot or config.ShotArcControl) then psReq = nil; if not bmFlight then perfectShotLock = nil end end
+        if not ((config.PerfectShot or config.RagePerfectShot) or config.ShotArcControl) then psReq = nil; if not bmFlight and not guidedShot then perfectShotLock = nil end end
         if not config.QuickRelease then
             quickEpoch = quickEpoch + 1
             quickPending = false
@@ -2219,6 +2313,10 @@ end
             Callback = function(value) setFeature(key, value) end})
     end
     if IS_PREMIUM_USER == true then
+        Tabs.EventsFarm:AddToggle("RagePerfectShot", {Title = "Rage Perfect Shot", Default = false,
+            Callback = function(value) setFeature("RagePerfectShot", value) end})
+        Tabs.EventsFarm:AddToggle("SlowBall", {Title = "Slowing Down the Ball", Default = false,
+            Callback = function(value) setFeature("SlowBall", value) end})
         Tabs.EventsFarm:AddToggle("BallManipulation", {Title = "Ball Manipulation", Default = false,
             ShowDescription = true, Description = "Will not work with ping >120 ms or while using a VPN.",
             DescriptionColor = Color3.fromRGB(255, 70, 70),
