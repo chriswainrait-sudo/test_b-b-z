@@ -1573,7 +1573,6 @@ end
         bmFlight, bmTouch, bmStick = nil, nil, Vector2.zero
         if not flight then return end
         RunService:UnbindFromRenderStep(bmRender)
-        if flight.Touch then flight.Touch:Disconnect() end
         if perfectShotLock == flight.Lock then perfectShotLock = nil end
         local camera = flight.Camera
         if Workspace.CurrentCamera == camera and camera.CameraType == Enum.CameraType.Scriptable
@@ -1602,7 +1601,7 @@ end
         if not alive or not config.BallManipulation or ScriptUnloaded or not playing()
             or not humanoid or humanoid.Health <= 0 or character ~= flight.Character or LocalPlayer.Team ~= flight.Team
             or GetCurrentBall() ~= flight.Ball or not flight.Ball.Parent or flight.Ball.Anchored
-            or os.clock() - flight.Started > 8 or Workspace.CurrentCamera ~= flight.Camera
+            or Workspace.CurrentCamera ~= flight.Camera
             or flight.Camera.CameraType ~= Enum.CameraType.Scriptable or flight.Camera.CameraSubject ~= flight.Ball
             or Workspace:FindFirstChild("CamRig") or not ballOwned() then return false end
         local ok, holder = pcall(controller.GetPlayerPossessingBall, controller)
@@ -1624,16 +1623,12 @@ end
             Direction = look, Started = os.clock(), Speed = math.clamp(ball.AssemblyLinearVelocity.Magnitude, 40, 250),
             Subject = camera.CameraSubject, Type = camera.CameraType, Frame = camera.CFrame, Focus = camera.Focus,
             Mouse = userInputService.MouseBehavior, Icon = userInputService.MouseIconEnabled}
-        flight.Lock = {ball = ball, expires = flight.Started + 8}
+        flight.Lock = {ball = ball, expires = math.huge}
         bmFlight, perfectShotLock = flight, flight.Lock
         camera.CameraSubject, camera.CameraType = ball, Enum.CameraType.Scriptable
         if userInputService.MouseEnabled and userInputService:GetLastInputType() ~= Enum.UserInputType.Touch then
             userInputService.MouseBehavior, userInputService.MouseIconEnabled = Enum.MouseBehavior.LockCenter, false
         end
-        flight.Touch = ball.Touched:Connect(function(part)
-            if bmFlight ~= flight or not flight.Released or os.clock() - flight.Started < 0.12 then return end
-            if part:IsA("BasePart") and part.CanCollide and not part:IsDescendantOf(flight.Character) then stopBallFlight() end
-        end)
         RunService:BindToRenderStep(bmRender, Enum.RenderPriority.Last.Value + 1, function(dt)
             if bmFlight ~= flight then return end
             if not ballFlightValid(flight) then stopBallFlight(); return end
