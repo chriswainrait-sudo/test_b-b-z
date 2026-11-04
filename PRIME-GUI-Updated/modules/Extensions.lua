@@ -329,7 +329,7 @@ do
     end
     local function playerValue(other, name)
         local value = other:FindFirstChild(name)
-        return value and value:IsA("StringValue") and value.Value or "Р В Р вЂ Р В РІР‚С™Р Р†Р вЂљРЎСљ"
+        return value and value:IsA("StringValue") and value.Value or "Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р Р‹Р РЋРЎв„ў"
     end
     local function ballOwner()
         local controller = controllers.BallController
@@ -532,7 +532,7 @@ do
         m.box.Visible = true; m.box.Size = UDim2.fromOffset(8, 8)
         m.box.Position = UDim2.fromOffset(p.X - 4, p.Y - 4)
         m.stroke.Enabled = true; m.stroke.Color = accent
-        m.text.Text = name .. (config.Distance and string.format(" Р В РІР‚в„ўР вЂ™Р’В· %.0f studs", distance) or "")
+        m.text.Text = name .. (config.Distance and string.format(" Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В· %.0f studs", distance) or "")
     end
     local function markPlayer(other, camera)
         local model = other.Character
@@ -560,7 +560,7 @@ do
         if config.Distance then table.insert(lines, string.format("%.0f studs", distance)) end
         if config.StyleESP then table.insert(lines, "Style: " .. playerValue(other, "Style")) end
         if config.ZoneESP then table.insert(lines, "Zone: " .. playerValue(other, "Zone")) end
-        m.text.Text = table.concat(lines, " Р В РІР‚в„ўР вЂ™Р’В· ")
+        m.text.Text = table.concat(lines, " Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В· ")
     end
 
     local function csToggle(id, key, tab, title, description)
@@ -746,20 +746,20 @@ do
         inventory.Visible = config.InventoryHUD
         if statusClock >= 0.5 then
             statusClock = 0
-            status.Text = string.format("GUI: %s Р В Р вЂ Р В РІР‚С™Р РЋРЎвЂє Knit: %s\nDribble: %s", "Nexus", controllerState, dribblePatchStatus)
+            status.Text = string.format("GUI: %s Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В Р вЂ№Р В Р Р‹Р Р†Р вЂљРЎвЂќ Knit: %s\nDribble: %s", "Nexus", controllerState, dribblePatchStatus)
             if config.InventoryHUD then
                 local network = controllers.Network
                 local data = network and network.Player
                 local function count(key)
                     local value = type(data) == "table" and data[key]
-                    return type(value) == "number" and tostring(math.max(0, math.floor(value))) or "Р В Р вЂ Р В РІР‚С™Р Р†Р вЂљРЎСљ"
+                    return type(value) == "number" and tostring(math.max(0, math.floor(value))) or "Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р Р‹Р РЋРЎв„ў"
                 end
                 local ability = controllers.AbilityController
                 local cds = ability and ability.CDS
                 local cooldowns = {}
                 for i = 1, 4 do
                     local value = type(cds) == "table" and cds[i]
-                    cooldowns[i] = type(value) == "number" and string.format("%.1f", math.max(0, value - tick())) or "Р В Р вЂ Р В РІР‚С™Р Р†Р вЂљРЎСљ"
+                    cooldowns[i] = type(value) == "number" and string.format("%.1f", math.max(0, value - tick())) or "Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р Р‹Р РЋРЎв„ў"
                 end
                 inventory.Text = string.format("Style: %s\nZone: %s\nSpins: %s  |  Lucky: %s\nPity: %s/50  |  Lucky pity: %s/75\nAbility CD: %s",
                     playerValue(player, "Style"), playerValue(player, "Zone"), count("Spins"), count("LuckySpins"),
@@ -791,6 +791,7 @@ end
 do
     local state = {Alive = true, Enabled = false, Team = "Auto", LastClick = -10}
     local elapsed, links = 0, {}
+    local input, pressed
     local function active() return state.Alive and not ScriptUnloaded end
     local function visible(object)
         local current = object
@@ -800,12 +801,50 @@ do
         end
         return current == PlayerGui
     end
-    local function click(button, down)
-        if not button or not button:IsA("GuiButton") or not visible(button) or type(firesignal) ~= "function" then return false end
+    local function release(cancel)
+        local current = pressed
+        pressed = nil
+        if current and input then pcall(input.SendMouseButtonEvent, input, cancel and 0 or current.X, cancel and 0 or current.Y, 0, false, game, 0) end
+    end
+    local function fail(message)
+        state.Enabled = false
+        release(true)
+        task.defer(function()
+            if not active() then return end
+            local option = NexusUI.Options.NewAutoPlay
+            if option then option:SetValue(false) end
+            NexusUI:Notify({Title = "Auto Play", Content = tostring(message), Duration = 5})
+        end)
+    end
+    local function click(button)
+        if pressed or not input or not button or not button:IsA("GuiButton") or not visible(button) or userInputService:GetFocusedTextBox() then return false end
+        local size, position = button.AbsoluteSize, button.AbsolutePosition
+        local camera = Workspace.CurrentCamera
+        if size.X < 2 or size.Y < 2 or not camera then return false end
+        local inset = game:GetService("GuiService"):GetGuiInset()
+        local center = position + size / 2
+        local x, y
+        for _, offset in ipairs({Vector2.zero, inset}) do
+            local px, py = math.floor(center.X + offset.X), math.floor(center.Y + offset.Y)
+            if px > 0 and py > 0 and px < camera.ViewportSize.X and py < camera.ViewportSize.Y then
+                local ok, objects = pcall(PlayerGui.GetGuiObjectsAtPosition, PlayerGui, px, py)
+                if ok and objects then
+                    for _, object in ipairs(objects) do
+                        if object == button or object:IsDescendantOf(button) then x, y = px, py; break end
+                        if object:IsA("GuiButton") or object.Active then break end
+                    end
+                end
+            end
+            if x then break end
+        end
+        if not x then return false end
         state.LastClick = os.clock()
-        local ok = pcall(firesignal, down and button.MouseButton1Down or button.MouseButton1Click)
-        if down and ok then task.defer(function() if active() and button.Parent then pcall(firesignal, button.MouseButton1Up) end end) end
-        return ok
+        local current = {X = x, Y = y}
+        pressed = current
+        local ok, failure = pcall(input.SendMouseButtonEvent, input, x, y, 0, true, game, 0)
+        if not ok then fail(failure); return false end
+        task.delay(0.06, function() if pressed == current then release(not active() or not state.Enabled) end end)
+        return true
     end
     local function update()
         if not active() or not state.Enabled or os.clock() - state.LastClick < 2 then return end
@@ -819,7 +858,7 @@ do
             local hud = PlayerGui:FindFirstChild("HUD")
             local play = hud and hud:FindFirstChild("Play", true)
             local button = play and (play:IsA("GuiButton") and play or play:FindFirstChildWhichIsA("GuiButton", true))
-            click(button, true)
+            click(button)
             return
         end
         local choices = state.Team == "Auto" and {"Home", "Away"} or {state.Team}
@@ -845,14 +884,11 @@ do
     Tabs.EventsFarm:AddDropdown("NewJoinTeam", {Title = "Team", Values = {"Auto", "Home", "Away"}, Default = "Auto", Callback = function(value) state.Team = value end})
     Tabs.EventsFarm:AddToggle("NewAutoPlay", {Title = "Auto Play", Description = "Clicks Play and an available team position", Default = false, Callback = function(value)
         state.Enabled, state.LastClick = value, -10
-        if value and type(firesignal) ~= "function" then
-            state.Enabled = false
-            task.defer(function()
-                if not active() then return end
-                local option = NexusUI.Options.NewAutoPlay
-                if option then option:SetValue(false) end
-                NexusUI:Notify({Title = "Auto Play", Content = "This executor cannot activate the game buttons.", Duration = 5})
-            end)
+        if not value then release(true); return end
+        if not input then
+            local ok, result = pcall(game.GetService, game, "VirtualInputManager")
+            if not ok then fail(result); return end
+            input = result
         end
     end})
     links[#links + 1] = RunService.Heartbeat:Connect(function(dt)
@@ -861,6 +897,7 @@ do
     end)
     RegisterUnloadCallback(function()
         state.Alive, state.Enabled = false, false
+        release(true)
         for _, connection in ipairs(links) do connection:Disconnect() end
     end)
 end
