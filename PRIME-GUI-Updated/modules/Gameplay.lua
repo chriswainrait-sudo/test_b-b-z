@@ -791,11 +791,87 @@ Tabs.Main:AddToggle("AutoBlock", {
     end
 })
 
+do
+    local pass = {Speed = 240, Alive = true}
+    local function stopPassSpeed()
+        local request = pass.Request
+        pass.Request = nil
+        if not request then return end
+        if request.Connection then request.Connection:Disconnect() end
+        local owns = pass.Owner == LocalPlayer
+        if type(isnetworkowner) == "function" then local ok, result = pcall(isnetworkowner, request.Ball); owns = ok and result == true end
+        if request.Ball.Parent and not localPlayerHasBall() and owns and not pass.Holder then
+            for actuator, record in pairs(request.Actuators) do
+                if actuator.Parent == request.Ball and actuator.VectorVelocity == record.Applied then actuator.VectorVelocity = record.Native end
+            end
+            if request.Applied and request.Ball.AssemblyLinearVelocity == request.Applied then request.Ball.AssemblyLinearVelocity = request.Native end
+        end
+    end
+    local function queuePassSpeed(target)
+        stopPassSpeed()
+        local ball = GetCurrentBall()
+        if not ball then return end
+        local request = {Ball = ball, Target = target, Character = LocalPlayer.Character, Team = LocalPlayer.Team, Started = os.clock(), Actuators = {}, Existing = {}}
+        pass.Request, pass.Owner, pass.Holder = request, LocalPlayer, nil
+        for _, object in ipairs(ball:GetChildren()) do if object:IsA("LinearVelocity") then request.Existing[object] = true end end
+        request.Connection = ball.ChildAdded:Connect(function(object)
+            if object:IsA("LinearVelocity") and not request.Existing[object] and object.Attachment0 == ball:FindFirstChild("Root") then
+                request.Actuators[object] = {Native = object.VectorVelocity}
+            end
+        end)
+    end
+    TrackScriptConnection(RunService.PreSimulation:Connect(function()
+        local request = pass.Request
+        if not request then return end
+        local ball, target = request.Ball, request.Target
+        local root = target and target:FindFirstChild("HumanoidRootPart")
+        local age = os.clock() - request.Started
+        if not pass.Alive or ScriptUnloaded or not AutoPassEnabled or age > 3 or GetCurrentBall() ~= ball or not ball.Parent or ball.Anchored
+            or LocalPlayer.Character ~= request.Character or LocalPlayer.Team ~= request.Team or not target.Parent or not root
+            or pass.Owner ~= LocalPlayer or pass.Holder or (root.Position - ball.Position).Magnitude <= 3 then stopPassSpeed(); return end
+        if localPlayerHasBall() then if age > 0.5 then stopPassSpeed() end; return end
+        if type(isnetworkowner) == "function" then
+            local ok, owned = pcall(isnetworkowner, ball)
+            if not ok or not owned then stopPassSpeed(); return end
+        end
+        local velocity = ball.AssemblyLinearVelocity
+        for actuator, record in pairs(request.Actuators) do
+            if actuator.Parent ~= ball then request.Actuators[actuator] = nil
+            else
+                local native = actuator.VectorVelocity
+                if native ~= record.Applied then record.Native = native end
+                if record.Native.Magnitude > 0.01 then
+                    velocity = record.Native.Unit * pass.Speed
+                    record.Applied = velocity
+                    actuator.VectorVelocity = velocity
+                end
+            end
+        end
+        if velocity.Magnitude > 0.01 then
+            if ball.AssemblyLinearVelocity ~= request.Applied then request.Native = ball.AssemblyLinearVelocity end
+            request.Applied = velocity.Unit * pass.Speed
+            ball.AssemblyLinearVelocity = request.Applied
+        end
+    end))
+    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+    local ballState = remotes and remotes:FindFirstChild("BallState")
+    local ownership = ballState and ballState:FindFirstChild("ReplicateBallNetworkOwner")
+    local possession = ballState and ballState:FindFirstChild("SetCurrentBallPlayer")
+    if ownership and ownership:IsA("RemoteEvent") then TrackScriptConnection(ownership.OnClientEvent:Connect(function(player)
+        pass.Owner = player
+        if player ~= LocalPlayer then stopPassSpeed() end
+    end)) end
+    if possession and possession:IsA("RemoteEvent") then TrackScriptConnection(possession.OnClientEvent:Connect(function(player)
+        pass.Holder = player
+        if player then stopPassSpeed() end
+    end)) end
+    Tabs.EventsFarm:AddSlider("NewPassSpeed", {Title = "Pass Ball Speed", Description = "Ball speed in studs per second", Min = 80, Max = 500, Step = 5, Rounding = 0, Default = 240, Callback = function(value) pass.Speed = value end})
 Tabs.EventsFarm:AddToggle("AutoPass", {
     Title = "Auto Pass",
     Description = "Passes to an open teammate when a defender is close",
     Default = false,
     Callback = function(Value)
+        stopPassSpeed()
         AutoPassEnabled = Value
         if AutoPassConnection then
             AutoPassConnection:Disconnect()
@@ -879,8 +955,10 @@ Tabs.EventsFarm:AddToggle("AutoPass", {
             local button = findGuiButton("Pass", ball and ball:FindFirstChild("Pass"))
             if not button or not button:IsA("GuiButton") then return end
             attempted, lastPass = true, now
+            queuePassSpeed(target)
             local ok, failure = pcall(firesignal, button.MouseButton1Click)
             if not ok then
+                stopPassSpeed()
                 AutoPassEnabled = false
                 local option = NexusUI.Options.AutoPass
                 if option then option:SetValue(false) end
@@ -889,6 +967,9 @@ Tabs.EventsFarm:AddToggle("AutoPass", {
         end))
     end,
 })
+
+    RegisterUnloadCallback(function() pass.Alive = false; stopPassSpeed() end)
+end
 
 Tabs.Main:AddToggle("AutoBlockDunk", {
     Title = "Auto Block Dunk",
