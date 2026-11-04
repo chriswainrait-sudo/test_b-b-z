@@ -329,7 +329,7 @@ do
     end
     local function playerValue(other, name)
         local value = other:FindFirstChild(name)
-        return value and value:IsA("StringValue") and value.Value or "РІР‚вЂќ"
+        return value and value:IsA("StringValue") and value.Value or "Р Р†Р вЂљРІР‚Сњ"
     end
     local function ballOwner()
         local controller = controllers.BallController
@@ -532,7 +532,7 @@ do
         m.box.Visible = true; m.box.Size = UDim2.fromOffset(8, 8)
         m.box.Position = UDim2.fromOffset(p.X - 4, p.Y - 4)
         m.stroke.Enabled = true; m.stroke.Color = accent
-        m.text.Text = name .. (config.Distance and string.format(" Р’В· %.0f studs", distance) or "")
+        m.text.Text = name .. (config.Distance and string.format(" Р вЂ™Р’В· %.0f studs", distance) or "")
     end
     local function markPlayer(other, camera)
         local model = other.Character
@@ -560,7 +560,7 @@ do
         if config.Distance then table.insert(lines, string.format("%.0f studs", distance)) end
         if config.StyleESP then table.insert(lines, "Style: " .. playerValue(other, "Style")) end
         if config.ZoneESP then table.insert(lines, "Zone: " .. playerValue(other, "Zone")) end
-        m.text.Text = table.concat(lines, " Р’В· ")
+        m.text.Text = table.concat(lines, " Р вЂ™Р’В· ")
     end
 
     local function csToggle(id, key, tab, title, description)
@@ -746,20 +746,20 @@ do
         inventory.Visible = config.InventoryHUD
         if statusClock >= 0.5 then
             statusClock = 0
-            status.Text = string.format("GUI: %s РІР‚Сћ Knit: %s\nDribble: %s", "Nexus", controllerState, dribblePatchStatus)
+            status.Text = string.format("GUI: %s Р Р†Р вЂљРЎС› Knit: %s\nDribble: %s", "Nexus", controllerState, dribblePatchStatus)
             if config.InventoryHUD then
                 local network = controllers.Network
                 local data = network and network.Player
                 local function count(key)
                     local value = type(data) == "table" and data[key]
-                    return type(value) == "number" and tostring(math.max(0, math.floor(value))) or "РІР‚вЂќ"
+                    return type(value) == "number" and tostring(math.max(0, math.floor(value))) or "Р Р†Р вЂљРІР‚Сњ"
                 end
                 local ability = controllers.AbilityController
                 local cds = ability and ability.CDS
                 local cooldowns = {}
                 for i = 1, 4 do
                     local value = type(cds) == "table" and cds[i]
-                    cooldowns[i] = type(value) == "number" and string.format("%.1f", math.max(0, value - tick())) or "РІР‚вЂќ"
+                    cooldowns[i] = type(value) == "number" and string.format("%.1f", math.max(0, value - tick())) or "Р Р†Р вЂљРІР‚Сњ"
                 end
                 inventory.Text = string.format("Style: %s\nZone: %s\nSpins: %s  |  Lucky: %s\nPity: %s/50  |  Lucky pity: %s/75\nAbility CD: %s",
                     playerValue(player, "Style"), playerValue(player, "Zone"), count("Spins"), count("LuckySpins"),
@@ -789,117 +789,13 @@ end
 
 
 do
-    local state = {Alive = true, AutoPlay = false, AutoPass = false, Team = "Auto", Mode = "Random Teammate", Speed = 240, LastPass = -10, LastJoin = -10, Epoch = 0}
-    local controllers, links, names = {}, {}, {}
-    local knit, teamService, ballService, patch, flight, pending, targetDropdown
-    local discovering, passing, joining, elapsed, nextDiscovery = false, false, false, 0, 0
-    local random = Random.new()
-    local function notify(message) NexusUI:Notify({Title = "New", Content = tostring(message), Duration = 5}) end
-    local function disconnect(connection) if connection then connection:Disconnect() end end
+    local state = {Alive = true, AutoPlay = false, Team = "Auto", LastJoin = -10}
+    local controllers, links = {}, {}
+    local knit, teamService
+    local discovering, joining, elapsed, nextDiscovery = false, false, 0, 0
     local function active() return state.Alive and not ScriptUnloaded end
     local function playing() return LocalPlayer.Team and (LocalPlayer.Team.Name == "Home" or LocalPlayer.Team.Name == "Away") end
-    local function owner()
-        local c = controllers.BallController
-        if c and type(c.GetPlayerPossessingBall) == "function" then local ok, result = pcall(c.GetPlayerPossessingBall, c); if ok then return result end end
-    end
-    local function ownsPhysics()
-        local c = controllers.BallController
-        if not c or type(c.LocalPlayerIsBallNetworkOwner) ~= "function" then return false end
-        local ok, result = pcall(c.LocalPlayerIsBallNetworkOwner, c)
-        return ok and result == true
-    end
-    local function clearFlight()
-        local previous = flight
-        flight = nil
-        if not previous then return end
-        disconnect(previous.Connection)
-        if previous.Ball.Parent and owner() == nil and ownsPhysics() then
-            for actuator, record in pairs(previous.Actuators) do
-                if actuator.Parent == previous.Ball and actuator.VectorVelocity == record.Applied then actuator.VectorVelocity = record.Native end
-            end
-            if previous.Applied and previous.Ball.AssemblyLinearVelocity == previous.Applied then previous.Ball.AssemblyLinearVelocity = previous.Native end
-        end
-    end
-    local function resetPass() state.Epoch = state.Epoch + 1; pending = nil; clearFlight() end
-    local function validTarget(player)
-        if not player or player == LocalPlayer or player.Parent ~= Players or not playing() or player.Team ~= LocalPlayer.Team then return end
-        local character = player.Character
-        local root = character and character:FindFirstChild("HumanoidRootPart")
-        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-        local mine = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if root and humanoid and humanoid.Health > 0 and mine and (root.Position - mine.Position).Magnitude <= 180 then return root end
-    end
-    local function startFlight(request)
-        clearFlight()
-        local ball = request.Ball
-        local current = {Ball = ball, Request = request, Actuators = {}, Started = os.clock()}
-        flight = current
-        local function add(object)
-            if object:IsA("LinearVelocity") and not request.Existing[object] and object.Attachment0 == ball:FindFirstChild("Root") then current.Actuators[object] = {Native = object.VectorVelocity} end
-        end
-        for _, object in ipairs(ball:GetChildren()) do add(object) end
-        current.Connection = ball.ChildAdded:Connect(add)
-    end
-    local function updateFlight()
-        local current = flight
-        if not current then return end
-        local request, ball = current.Request, current.Ball
-        local root, holder = validTarget(request.Player), owner()
-        if not active() or not state.AutoPass or request.Epoch ~= state.Epoch or LocalPlayer.Character ~= request.Character
-            or not root or root ~= request.Root or GetCurrentBall() ~= ball or not ball.Parent or ball.Anchored
-            or os.clock() - current.Started > 3 or not ownsPhysics() or (root.Position - ball.Position).Magnitude <= 3 then clearFlight(); return end
-        if holder then
-            if holder == LocalPlayer and os.clock() - current.Started < 0.3 then return end
-            clearFlight(); return
-        end
-        local velocity = ball.AssemblyLinearVelocity
-        for actuator, record in pairs(current.Actuators) do
-            if actuator.Parent ~= ball then current.Actuators[actuator] = nil
-            else
-                local native = actuator.VectorVelocity
-                if native ~= record.Applied then record.Native = native end
-                if record.Native.Magnitude > 0.01 then velocity = record.Native.Unit * state.Speed; record.Applied = velocity; actuator.VectorVelocity = velocity end
-            end
-        end
-        if velocity.Magnitude > 0.01 then
-            if ball.AssemblyLinearVelocity ~= current.Applied then current.Native = ball.AssemblyLinearVelocity end
-            current.Applied = velocity.Unit * state.Speed
-            ball.AssemblyLinearVelocity = current.Applied
-        end
-    end
-    local function removePatch()
-        if patch and rawget(patch.Object, "Pass") == patch.Wrapper then rawset(patch.Object, "Pass", patch.Original) end
-        patch = nil
-    end
-    local function installPatch()
-        local object = controllers.PassController
-        if patch and patch.Object == object then return true end
-        removePatch()
-        if type(object) ~= "table" or table.isfrozen(object) or type(object.Pass) ~= "function" then return false end
-        local original, raw = object.Pass, rawget(object, "Pass")
-        local wrapper = function(self, target, ...)
-            local request = pending
-            local eligible = active() and state.AutoPass and request and os.clock() <= request.Expires
-                and request.Epoch == state.Epoch and request.Character == LocalPlayer.Character and request.Root == target
-                and request.Ball == GetCurrentBall() and validTarget(request.Player) == target
-            if eligible then
-                local ball = controllers.BallController
-                local ok, last = pcall(ball.GetLastPlayerToPossessBall, ball)
-                eligible = ok and last == LocalPlayer
-            end
-            if eligible then
-                request.Existing = {}
-                for _, object in ipairs(request.Ball:GetChildren()) do if object:IsA("LinearVelocity") then request.Existing[object] = true end end
-            end
-            local result = table.pack(original(self, target, ...))
-            if eligible and active() and state.AutoPass and request.Epoch == state.Epoch and os.clock() <= request.Expires
-                and request.Character == LocalPlayer.Character and request.Ball == GetCurrentBall() and validTarget(request.Player) == target and ownsPhysics() then pending = nil; startFlight(request) end
-            return table.unpack(result, 1, result.n)
-        end
-        rawset(object, "Pass", wrapper)
-        patch = {Object = object, Original = raw, Wrapper = wrapper}
-        return true
-    end
+    local function notify(message) NexusUI:Notify({Title = "New", Content = tostring(message), Duration = 5}) end
     local function discover()
         if discovering or os.clock() < nextDiscovery or not active() then return end
         discovering, nextDiscovery = true, os.clock() + 3
@@ -911,21 +807,8 @@ do
                     if module then local loaded, result = pcall(require, module); if loaded then knit = result end end
                 end
                 if knit then
-                    for _, name in ipairs({"BallController", "PassController", "Network"}) do local found, result = pcall(knit.GetController, name); if found then controllers[name] = result end end
-                    local found, result = pcall(knit.GetService, "BallService"); if found then ballService = result end
+                    local found, result = pcall(knit.GetController, "Network"); if found then controllers.Network = result end
                     found, result = pcall(knit.GetService, "TeamService"); if found then teamService = result end
-                end
-                if type(getgc) == "function" and (not controllers.Network or not controllers.Network.CharValues or not controllers.PassController) then
-                    for index, object in pairs(getgc(true)) do
-                        if not active() then break end
-                        if type(object) == "table" then
-                            local name = rawget(object, "Name")
-                            if name == "Network" and type(rawget(object, "CharValues")) == "table" or name == "BallController" and type(rawget(object, "DribbleDB")) == "number"
-                                or name == "PassController" and type(rawget(object, "Pass")) == "function" then controllers[name] = object end
-                            if not ballService and type(rawget(object, "BallService")) == "table" then ballService = rawget(object, "BallService") end
-                        end
-                        if type(index) == "number" and index % 400 == 0 then task.wait() end
-                    end
                 end
             end)
             discovering = false
@@ -969,99 +852,23 @@ do
             if active() and not ok and not state.JoinError then state.JoinError = true; notify(result) end
         end)
     end
-    local function passBall()
-        local now = os.clock()
-        if passing or flight or pending and now <= pending.Expires or now - state.LastPass < 1.1 then return end
-        pending = nil
-        local ball, network = controllers.BallController, controllers.Network
-        if not playing() or not ball or not network or not network.CharValues or network.CharValues.HasBall ~= true
-            or owner() ~= LocalPlayer or not ballService or not ballService.Pass or not installPatch() then return end
-        local can, ready = pcall(ball.CanPass, ball)
-        if not can or not ready then return end
-        local available = {}
-        for _, player in ipairs(Players:GetPlayers()) do if validTarget(player) and (state.Mode ~= "Specific User" or player.UserId == state.TargetId) then available[#available + 1] = player end end
-        if #available == 0 then return end
-        local player = available[random:NextInteger(1, #available)]
-        local root, currentBall = validTarget(player), GetCurrentBall()
-        if not root or not currentBall then return end
-        local request = {Player = player, Root = root, Ball = currentBall, Character = LocalPlayer.Character, Epoch = state.Epoch, Expires = now + 2.5}
-        pending, passing, state.LastPass = request, true, now
-        task.spawn(function()
-            local ok, failure = pcall(function()
-                if not active() or not state.AutoPass or request.Epoch ~= state.Epoch or not validTarget(player) or owner() ~= LocalPlayer then return end
-                controllers.PassController:Anim(player.Character)
-                ballService.Pass:Fire(player.Character)
-            end)
-            passing = false
-            if not ok then
-                if pending == request then pending = nil end
-                if active() and not state.PassError then state.PassError = true; notify(failure) end
-            end
-        end)
-    end
-    local function refreshPlayers()
-        local values, map, selected = {"Select a player"}, {}, "Select a player"
-        local players = Players:GetPlayers()
-        table.sort(players, function(a, b) return a.Name:lower() < b.Name:lower() end)
-        for _, player in ipairs(players) do
-            if player ~= LocalPlayer then
-                local label = player.DisplayName .. " (@" .. player.Name .. ")"
-                values[#values + 1], map[label] = label, player.UserId
-                if player.UserId == state.TargetId then selected = label end
-            end
-        end
-        names = map
-        targetDropdown:SetValues(values)
-        targetDropdown:SetValue(selected)
-    end
     Tabs.EventsFarm:AddSection("Auto Play")
     Tabs.EventsFarm:AddDropdown("NewJoinTeam", {Title = "Team", Values = {"Auto", "Home", "Away"}, Default = "Auto", Callback = function(value) state.Team = value end})
     Tabs.EventsFarm:AddToggle("NewAutoPlay", {Title = "Auto Play", Description = "Automatically joins an available position on the selected team", Default = false, Callback = function(value)
         state.AutoPlay = value
         if value then state.LastJoin = -10; discover() end
     end})
-    Tabs.EventsFarm:AddSection("Auto Pass")
-    Tabs.EventsFarm:AddDropdown("NewPassMode", {Title = "Pass To", Values = {"Random Teammate", "Specific User"}, Default = "Random Teammate", Callback = function(value) state.Mode = value; resetPass() end})
-    targetDropdown = Tabs.EventsFarm:AddDropdown("NewPassTarget", {Title = "Specific User", Values = {"Select a player"}, Default = "Select a player", Callback = function(value)
-        local id = names[value]
-        if id ~= state.TargetId then state.TargetId = id; resetPass() end
-    end})
-    Tabs.EventsFarm:AddSlider("NewPassSpeed", {Title = "Pass Ball Speed", Description = "Ball speed in studs per second", Min = 80, Max = 500, Step = 5, Rounding = 0, Default = 240, Callback = function(value) state.Speed = value end})
-    Tabs.EventsFarm:AddToggle("NewAutoPass", {Title = "Auto Pass", Description = "Automatically passes to the selected user or a random available teammate", Default = false, Callback = function(value)
-        state.AutoPass = value; resetPass()
-        if value then
-            local previous = NexusUI.Options.AutoPass
-            if previous and previous.Value then previous:SetValue(false) end
-            discover()
-        else removePatch() end
-    end})
-    refreshPlayers()
-    links[#links + 1] = Players.PlayerAdded:Connect(function() task.defer(function() if active() then refreshPlayers() end end) end)
-    links[#links + 1] = Players.PlayerRemoving:Connect(function(player)
-        if state.TargetId == player.UserId then state.TargetId = nil; resetPass() end
-        task.defer(function() if active() then refreshPlayers() end end)
-    end)
-    links[#links + 1] = LocalPlayer.CharacterRemoving:Connect(resetPass)
-    links[#links + 1] = LocalPlayer:GetPropertyChangedSignal("Team"):Connect(resetPass)
-    links[#links + 1] = RunService.PreSimulation:Connect(updateFlight)
     links[#links + 1] = RunService.Heartbeat:Connect(function(dt)
-        if not active() then return end
+        if not active() or not state.AutoPlay then return end
         elapsed = elapsed + dt
         if elapsed < 0.15 then return end
         elapsed = 0
-        if not state.AutoPlay and not state.AutoPass then return end
-        if not teamService or not ballService or not controllers.Network or not controllers.Network.CharValues or not controllers.PassController or not controllers.BallController then discover() end
-        if state.AutoPlay then joinMatch() end
-        if state.AutoPass then
-            local previous = NexusUI.Options.AutoPass
-            if previous and previous.Value then previous:SetValue(false) end
-            passBall()
-        end
+        if not teamService or not controllers.Network then discover() end
+        joinMatch()
     end)
     RegisterUnloadCallback(function()
-        state.Alive, state.AutoPlay, state.AutoPass = false, false, false
-        resetPass(); removePatch()
-        for _, connection in ipairs(links) do disconnect(connection) end
+        state.Alive, state.AutoPlay = false, false
+        for _, connection in ipairs(links) do connection:Disconnect() end
         table.clear(links)
     end)
 end
