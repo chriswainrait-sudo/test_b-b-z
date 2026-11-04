@@ -329,7 +329,7 @@ do
     end
     local function playerValue(other, name)
         local value = other:FindFirstChild(name)
-        return value and value:IsA("StringValue") and value.Value or "Р Р†Р вЂљРІР‚Сњ"
+        return value and value:IsA("StringValue") and value.Value or "Р В Р вЂ Р В РІР‚С™Р Р†Р вЂљРЎСљ"
     end
     local function ballOwner()
         local controller = controllers.BallController
@@ -532,7 +532,7 @@ do
         m.box.Visible = true; m.box.Size = UDim2.fromOffset(8, 8)
         m.box.Position = UDim2.fromOffset(p.X - 4, p.Y - 4)
         m.stroke.Enabled = true; m.stroke.Color = accent
-        m.text.Text = name .. (config.Distance and string.format(" Р вЂ™Р’В· %.0f studs", distance) or "")
+        m.text.Text = name .. (config.Distance and string.format(" Р В РІР‚в„ўР вЂ™Р’В· %.0f studs", distance) or "")
     end
     local function markPlayer(other, camera)
         local model = other.Character
@@ -560,7 +560,7 @@ do
         if config.Distance then table.insert(lines, string.format("%.0f studs", distance)) end
         if config.StyleESP then table.insert(lines, "Style: " .. playerValue(other, "Style")) end
         if config.ZoneESP then table.insert(lines, "Zone: " .. playerValue(other, "Zone")) end
-        m.text.Text = table.concat(lines, " Р вЂ™Р’В· ")
+        m.text.Text = table.concat(lines, " Р В РІР‚в„ўР вЂ™Р’В· ")
     end
 
     local function csToggle(id, key, tab, title, description)
@@ -746,20 +746,20 @@ do
         inventory.Visible = config.InventoryHUD
         if statusClock >= 0.5 then
             statusClock = 0
-            status.Text = string.format("GUI: %s Р Р†Р вЂљРЎС› Knit: %s\nDribble: %s", "Nexus", controllerState, dribblePatchStatus)
+            status.Text = string.format("GUI: %s Р В Р вЂ Р В РІР‚С™Р РЋРЎвЂє Knit: %s\nDribble: %s", "Nexus", controllerState, dribblePatchStatus)
             if config.InventoryHUD then
                 local network = controllers.Network
                 local data = network and network.Player
                 local function count(key)
                     local value = type(data) == "table" and data[key]
-                    return type(value) == "number" and tostring(math.max(0, math.floor(value))) or "Р Р†Р вЂљРІР‚Сњ"
+                    return type(value) == "number" and tostring(math.max(0, math.floor(value))) or "Р В Р вЂ Р В РІР‚С™Р Р†Р вЂљРЎСљ"
                 end
                 local ability = controllers.AbilityController
                 local cds = ability and ability.CDS
                 local cooldowns = {}
                 for i = 1, 4 do
                     local value = type(cds) == "table" and cds[i]
-                    cooldowns[i] = type(value) == "number" and string.format("%.1f", math.max(0, value - tick())) or "Р Р†Р вЂљРІР‚Сњ"
+                    cooldowns[i] = type(value) == "number" and string.format("%.1f", math.max(0, value - tick())) or "Р В Р вЂ Р В РІР‚С™Р Р†Р вЂљРЎСљ"
                 end
                 inventory.Text = string.format("Style: %s\nZone: %s\nSpins: %s  |  Lucky: %s\nPity: %s/50  |  Lucky pity: %s/75\nAbility CD: %s",
                     playerValue(player, "Style"), playerValue(player, "Zone"), count("Spins"), count("LuckySpins"),
@@ -789,87 +789,79 @@ end
 
 
 do
-    local state = {Alive = true, AutoPlay = false, Team = "Auto", LastJoin = -10}
-    local controllers, links = {}, {}
-    local knit, teamService
-    local discovering, joining, elapsed, nextDiscovery = false, false, 0, 0
+    local state = {Alive = true, Enabled = false, Team = "Auto", LastClick = -10}
+    local elapsed, links = 0, {}
     local function active() return state.Alive and not ScriptUnloaded end
-    local function playing() return LocalPlayer.Team and (LocalPlayer.Team.Name == "Home" or LocalPlayer.Team.Name == "Away") end
-    local function notify(message) NexusUI:Notify({Title = "New", Content = tostring(message), Duration = 5}) end
-    local function discover()
-        if discovering or os.clock() < nextDiscovery or not active() then return end
-        discovering, nextDiscovery = true, os.clock() + 3
-        task.spawn(function()
-            local ok, failure = pcall(function()
-                if not knit then
-                    local packages = ReplicatedStorage:FindFirstChild("Packages")
-                    local module = packages and packages:FindFirstChild("Knit")
-                    if module then local loaded, result = pcall(require, module); if loaded then knit = result end end
-                end
-                if knit then
-                    local found, result = pcall(knit.GetController, "Network"); if found then controllers.Network = result end
-                    found, result = pcall(knit.GetService, "TeamService"); if found then teamService = result end
-                end
-            end)
-            discovering = false
-            if active() and not ok and not state.DiscoveryError then state.DiscoveryError = true; notify(failure) end
-        end)
+    local function visible(object)
+        local current = object
+        while current and current ~= PlayerGui do
+            if current:IsA("GuiObject") and not current.Visible or current:IsA("ScreenGui") and not current.Enabled then return false end
+            current = current.Parent
+        end
+        return current == PlayerGui
     end
-    local function joinMatch()
-        if joining or not teamService or os.clock() - state.LastJoin < 2 then return end
+    local function click(button, down)
+        if not button or not button:IsA("GuiButton") or not visible(button) or type(firesignal) ~= "function" then return false end
+        state.LastClick = os.clock()
+        local ok = pcall(firesignal, down and button.MouseButton1Down or button.MouseButton1Click)
+        if down and ok then task.defer(function() if active() and button.Parent then pcall(firesignal, button.MouseButton1Up) end end) end
+        return ok
+    end
+    local function update()
+        if not active() or not state.Enabled or os.clock() - state.LastClick < 2 then return end
         local slots = ReplicatedStorage:FindFirstChild("Teams")
-        if not slots then return end
-        for _, folder in ipairs(slots:GetChildren()) do for _, slot in ipairs(folder:GetChildren()) do if slot:IsA("ObjectValue") and slot.Value == LocalPlayer then return end end end
-        local network = controllers.Network
-        local mode = network and network.Gamemode or "Normal"
-        local match = type(mode) == "string" and mode:sub(1, 6) == "Match-"
+        local pick = PlayerGui:FindFirstChild("PickTeam")
+        if not slots or not pick then return end
+        for _, folder in ipairs(slots:GetChildren()) do
+            for _, slot in ipairs(folder:GetChildren()) do if slot:IsA("ObjectValue") and slot.Value == LocalPlayer then return end end
+        end
+        if not pick.Enabled then
+            local hud = PlayerGui:FindFirstChild("HUD")
+            local play = hud and hud:FindFirstChild("Play", true)
+            local button = play and (play:IsA("GuiButton") and play or play:FindFirstChildWhichIsA("GuiButton", true))
+            click(button, true)
+            return
+        end
         local choices = state.Team == "Auto" and {"Home", "Away"} or {state.Team}
-        if match and playing() then choices = {LocalPlayer.Team.Name} end
-        if state.Team == "Auto" and not match then
+        if LocalPlayer.Team and (LocalPlayer.Team.Name == "Home" or LocalPlayer.Team.Name == "Away") then choices = {LocalPlayer.Team.Name}
+        elseif state.Team == "Auto" then
             local teams = game:GetService("Teams")
             local home, away = teams:FindFirstChild("Home"), teams:FindFirstChild("Away")
             if home and away and #home:GetPlayers() > #away:GetPlayers() then choices = {"Away", "Home"} end
         end
-        local pick, side, position = PlayerGui:FindFirstChild("PickTeam")
         for _, name in ipairs(choices) do
-            local folder = slots:FindFirstChild(name)
-            local panel = pick and pick:FindFirstChild(name)
-            local positions = panel and (panel:FindFirstChild(mode) or panel:FindFirstChild("Normal"))
-            if folder and (not panel or panel.Visible) then
-                for _, slot in ipairs(folder:GetChildren()) do
-                    local button = positions and positions:FindFirstChild(slot.Name)
-                    if slot:IsA("ObjectValue") and slot.Value == nil and (not positions or button and button.Visible) then side, position = name, slot.Name; break end
+            local folder, panel = slots:FindFirstChild(name), pick:FindFirstChild(name)
+            if folder and panel and visible(panel) then
+                for _, button in ipairs(panel:GetDescendants()) do
+                    if button:IsA("GuiButton") and visible(button) then
+                        local slot = folder:FindFirstChild(button.Name)
+                        if slot and slot:IsA("ObjectValue") and slot.Value == nil then click(button); return end
+                    end
                 end
             end
-            if side then break end
         end
-        if not side then return end
-        joining, state.LastJoin = true, os.clock()
-        task.spawn(function()
-            local ok, result = pcall(function() if active() and state.AutoPlay then return teamService:Select(side, position) end end)
-            joining = false
-            if active() and state.AutoPlay and ok and result and pick and pick.Parent then pick.Enabled = false end
-            if active() and not ok and not state.JoinError then state.JoinError = true; notify(result) end
-        end)
     end
     Tabs.EventsFarm:AddSection("Auto Play")
     Tabs.EventsFarm:AddDropdown("NewJoinTeam", {Title = "Team", Values = {"Auto", "Home", "Away"}, Default = "Auto", Callback = function(value) state.Team = value end})
-    Tabs.EventsFarm:AddToggle("NewAutoPlay", {Title = "Auto Play", Description = "Automatically joins an available position on the selected team", Default = false, Callback = function(value)
-        state.AutoPlay = value
-        if value then state.LastJoin = -10; discover() end
+    Tabs.EventsFarm:AddToggle("NewAutoPlay", {Title = "Auto Play", Description = "Clicks Play and an available team position", Default = false, Callback = function(value)
+        state.Enabled, state.LastClick = value, -10
+        if value and type(firesignal) ~= "function" then
+            state.Enabled = false
+            task.defer(function()
+                if not active() then return end
+                local option = NexusUI.Options.NewAutoPlay
+                if option then option:SetValue(false) end
+                NexusUI:Notify({Title = "Auto Play", Content = "This executor cannot activate the game buttons.", Duration = 5})
+            end)
+        end
     end})
     links[#links + 1] = RunService.Heartbeat:Connect(function(dt)
-        if not active() or not state.AutoPlay then return end
         elapsed = elapsed + dt
-        if elapsed < 0.15 then return end
-        elapsed = 0
-        if not teamService or not controllers.Network then discover() end
-        joinMatch()
+        if elapsed >= 0.2 then elapsed = 0; update() end
     end)
     RegisterUnloadCallback(function()
-        state.Alive, state.AutoPlay = false, false
+        state.Alive, state.Enabled = false, false
         for _, connection in ipairs(links) do connection:Disconnect() end
-        table.clear(links)
     end)
 end
 
