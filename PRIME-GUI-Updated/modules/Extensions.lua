@@ -34,6 +34,18 @@ do
     local humanoid, root, character, flyAttachment, flyVelocity
     local renderName = "Courtside_" .. Http:GenerateGUID(false)
     local controllers, controllerState, controllerTask = {}, "disconnected", nil
+    local passInputInfo = function()
+        if not alive then return end
+        local network = controllers.Network
+        local player = network and network.Player
+        local settings = player and player.Customization and player.Customization.Settings
+        local target = controllers.PassController and controllers.PassController.LookingAt
+        local ability = controllers.AbilityController
+        local signal = ability and ability.BallService and ability.BallService.Pass
+        return settings, network and network.Gamemode, target, signal
+    end
+    NexusUI.State.PassInputInfo = passInputInfo
+    RegisterUnloadCallback(function() if NexusUI.State.PassInputInfo == passInputInfo then NexusUI.State.PassInputInfo = nil end end)
     local sharedTables = {}
     local modifiedZone, modifiedZoneTables
     local tableChanges, savedAttributes = {}, {}
@@ -123,6 +135,7 @@ do
                 AbilityController = {CDS = "table", BallService = "table"},
                 Network = {CharValues = "table"},
                 CameraController = {SetShiftlock = "function"},
+                PassController = {Pass = "function", Anim = "function"},
             }
             local attempt = 0
             while alive do
@@ -147,7 +160,7 @@ do
                             end
                             if matches then
                                 found[name] = object
-                                if name ~= "CameraController" then count += 1 end
+                                if name ~= "CameraController" and name ~= "PassController" then count += 1 end
                             end
                         end
                         if type(rawget(object, "StealCooldowns")) == "table"
@@ -159,7 +172,7 @@ do
                         if type(styles) == "table" and type(rawget(styles, "Sniper")) == "table"
                             and type(rawget(styles, "Lock")) == "table" then sharedTables.Styles = styles end
                     end
-                    if count == 5 and sharedTables.Zones and sharedTables.Styles and found.CameraController then break end
+                    if count == 5 and sharedTables.Zones and sharedTables.Styles and found.CameraController and found.PassController then break end
                     visited += 1
                     if visited % 2000 == 0 then task.wait() end
                 end
@@ -168,7 +181,7 @@ do
                 if count == 5 then
                     controllers = found
                     controllerState = "connected"
-                    if sharedTables.Zones and sharedTables.Styles and found.CameraController then break end
+                    if sharedTables.Zones and sharedTables.Styles and found.CameraController and found.PassController then break end
                 else
                     controllerState = string.format("waiting for controllers %d/5", count)
                 end
@@ -329,7 +342,7 @@ do
     end
     local function playerValue(other, name)
         local value = other:FindFirstChild(name)
-        return value and value:IsA("StringValue") and value.Value or "Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р Р‹Р РЋРЎв„ў"
+        return value and value:IsA("StringValue") and value.Value or "Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В РІР‚в„ўР вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В Р вЂ№Р В Р вЂ Р Р†Р вЂљРЎвЂєР РЋРЎвЂєР В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р Р‹Р Р†РІР‚С›РЎС›Р В Р’В Р вЂ™Р’В Р В Р’В Р В РІР‚в„–Р В Р’В Р В Р вЂ№Р В Р Р‹Р Р†РІР‚С›РЎС›"
     end
     local function ballOwner()
         local controller = controllers.BallController
@@ -532,7 +545,7 @@ do
         m.box.Visible = true; m.box.Size = UDim2.fromOffset(8, 8)
         m.box.Position = UDim2.fromOffset(p.X - 4, p.Y - 4)
         m.stroke.Enabled = true; m.stroke.Color = accent
-        m.text.Text = name .. (config.Distance and string.format(" Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В· %.0f studs", distance) or "")
+        m.text.Text = name .. (config.Distance and string.format(" Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В РІР‚В Р В Р вЂ Р В РІР‚С™Р РЋРІР‚С”Р В Р Р‹Р РЋРІР‚С”Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р вЂ Р Р†Р вЂљРЎвЂєР РЋРЎвЂєР В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В· %.0f studs", distance) or "")
     end
     local function markPlayer(other, camera)
         local model = other.Character
@@ -560,7 +573,7 @@ do
         if config.Distance then table.insert(lines, string.format("%.0f studs", distance)) end
         if config.StyleESP then table.insert(lines, "Style: " .. playerValue(other, "Style")) end
         if config.ZoneESP then table.insert(lines, "Zone: " .. playerValue(other, "Zone")) end
-        m.text.Text = table.concat(lines, " Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В· ")
+        m.text.Text = table.concat(lines, " Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В РІР‚В Р В Р вЂ Р В РІР‚С™Р РЋРІР‚С”Р В Р Р‹Р РЋРІР‚С”Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р вЂ Р Р†Р вЂљРЎвЂєР РЋРЎвЂєР В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р Р†РІР‚С›РЎС›Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В· ")
     end
 
     local function csToggle(id, key, tab, title, description)
@@ -746,20 +759,20 @@ do
         inventory.Visible = config.InventoryHUD
         if statusClock >= 0.5 then
             statusClock = 0
-            status.Text = string.format("GUI: %s Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В Р вЂ№Р В Р Р‹Р Р†Р вЂљРЎвЂќ Knit: %s\nDribble: %s", "Nexus", controllerState, dribblePatchStatus)
+            status.Text = string.format("GUI: %s Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В РІР‚в„ўР вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В Р вЂ№Р В Р вЂ Р Р†Р вЂљРЎвЂєР РЋРЎвЂєР В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљРІвЂћвЂ“Р В Р’В Р вЂ™Р’В Р В Р’В Р В РІР‚в„–Р В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р Р‹Р Р†Р вЂљРЎСљ Knit: %s\nDribble: %s", "Nexus", controllerState, dribblePatchStatus)
             if config.InventoryHUD then
                 local network = controllers.Network
                 local data = network and network.Player
                 local function count(key)
                     local value = type(data) == "table" and data[key]
-                    return type(value) == "number" and tostring(math.max(0, math.floor(value))) or "Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р Р‹Р РЋРЎв„ў"
+                    return type(value) == "number" and tostring(math.max(0, math.floor(value))) or "Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В РІР‚в„ўР вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В Р вЂ№Р В Р вЂ Р Р†Р вЂљРЎвЂєР РЋРЎвЂєР В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р Р‹Р Р†РІР‚С›РЎС›Р В Р’В Р вЂ™Р’В Р В Р’В Р В РІР‚в„–Р В Р’В Р В Р вЂ№Р В Р Р‹Р Р†РІР‚С›РЎС›"
                 end
                 local ability = controllers.AbilityController
                 local cds = ability and ability.CDS
                 local cooldowns = {}
                 for i = 1, 4 do
                     local value = type(cds) == "table" and cds[i]
-                    cooldowns[i] = type(value) == "number" and string.format("%.1f", math.max(0, value - tick())) or "Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р Р‹Р РЋРЎв„ў"
+                    cooldowns[i] = type(value) == "number" and string.format("%.1f", math.max(0, value - tick())) or "Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В РІР‚в„ўР вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р Р†Р вЂљРІвЂћСћР В РІР‚в„ўР вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В Р’В Р Р†Р вЂљР’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р РЋРІвЂћСћР В Р’В Р В Р вЂ№Р В Р вЂ Р Р†Р вЂљРЎвЂєР РЋРЎвЂєР В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В Р вЂ Р В РІР‚С™Р вЂ™Р’В Р В Р’В Р вЂ™Р’В Р В РІР‚в„ўР вЂ™Р’В Р В Р’В Р В РІР‚В Р В Р’В Р Р†Р вЂљРЎв„ўР В Р Р‹Р Р†РІР‚С›РЎС›Р В Р’В Р вЂ™Р’В Р В Р’В Р В РІР‚в„–Р В Р’В Р В Р вЂ№Р В Р Р‹Р Р†РІР‚С›РЎС›"
                 end
                 inventory.Text = string.format("Style: %s\nZone: %s\nSpins: %s  |  Lucky: %s\nPity: %s/50  |  Lucky pity: %s/75\nAbility CD: %s",
                     playerValue(player, "Style"), playerValue(player, "Zone"), count("Spins"), count("LuckySpins"),
