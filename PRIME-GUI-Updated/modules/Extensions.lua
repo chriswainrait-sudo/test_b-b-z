@@ -805,6 +805,7 @@ do
     local state = {Alive = true, Enabled = false, Team = "Auto", LastClick = -10}
     local elapsed, links = 0, {}
     local input, pressed
+    local attempts, pending = 0, nil
     local function active() return state.Alive and not ScriptUnloaded end
     local function visible(object)
         local current = object
@@ -817,7 +818,15 @@ do
     local function release(cancel)
         local current = pressed
         pressed = nil
-        if current and input then pcall(input.SendMouseButtonEvent, input, cancel and 0 or current.X, cancel and 0 or current.Y, 0, false, game, 0) end
+        if not current or not input then return end
+        if cancel then pcall(input.Move, 0, 0) end
+        local ok, failure = pcall(input.Up)
+        local position = userInputService:GetMouseLocation()
+        if current.Origin and (cancel or (position - Vector2.new(current.X, current.Y)).Magnitude <= 6) then
+            pcall(input.Move, current.Origin.X, current.Origin.Y)
+        end
+        if not ok then return false, failure end
+        return true
     end
     local function fail(message)
         state.Enabled = false
@@ -833,7 +842,7 @@ do
         if pressed or not input or not button or not button:IsA("GuiButton") or not visible(button) or userInputService:GetFocusedTextBox() then return false end
         local size, position = button.AbsoluteSize, button.AbsolutePosition
         local camera = Workspace.CurrentCamera
-        if size.X < 2 or size.Y < 2 or not camera then return false end
+        if size.X < 2 or size.Y < 2 or not camera or camera.CameraType == Enum.CameraType.Scriptable then return false end
         local inset = game:GetService("GuiService"):GetGuiInset()
         local center = position + size / 2
         local x, y
@@ -852,20 +861,43 @@ do
         end
         if not x then return false end
         state.LastClick = os.clock()
-        local current = {X = x, Y = y}
+        local current = {X = x, Y = y, Origin = userInputService:GetMouseLocation(), Button = button, WasPick = PlayerGui.PickTeam.Enabled}
+        local moved, moveFailure = pcall(input.Move, x, y)
+        if not moved then fail(moveFailure); return false end
+        local position = userInputService:GetMouseLocation()
+        if (position - Vector2.new(x, y)).Magnitude > 6 then
+            pcall(input.Move, current.Origin.X, current.Origin.Y)
+            fail("Executor mouse coordinates do not match the game window.")
+            return false
+        end
         pressed = current
-        local ok, failure = pcall(input.SendMouseButtonEvent, input, x, y, 0, true, game, 0)
+        local ok, failure = pcall(input.Down)
         if not ok then fail(failure); return false end
-        task.delay(0.06, function() if pressed == current then release(not active() or not state.Enabled) end end)
+        attempts = attempts + 1
+        pending = {Button = button, Started = os.clock(), WasPick = current.WasPick}
+        task.delay(0.08, function()
+            if pressed ~= current then return end
+            local cancel = not active() or not state.Enabled or not button.Parent or not visible(button)
+                or (button.AbsolutePosition + button.AbsoluteSize / 2 - center).Magnitude > 4
+            local released, releaseFailure = release(cancel)
+            if released == false then fail(releaseFailure) end
+        end)
         return true
     end
     local function update()
         if not active() or not state.Enabled or os.clock() - state.LastClick < 2 then return end
+        if userInputService:GetFocusedTextBox() then return end
         local slots = ReplicatedStorage:FindFirstChild("Teams")
         local pick = PlayerGui:FindFirstChild("PickTeam")
         if not slots or not pick then return end
         for _, folder in ipairs(slots:GetChildren()) do
-            for _, slot in ipairs(folder:GetChildren()) do if slot:IsA("ObjectValue") and slot.Value == LocalPlayer then return end end
+            for _, slot in ipairs(folder:GetChildren()) do if slot:IsA("ObjectValue") and slot.Value == LocalPlayer then attempts, pending = 0, nil; return end end
+        end
+        if pending and pending.WasPick ~= pick.Enabled then attempts, pending = 0, nil end
+        if pending then
+            if os.clock() - pending.Started < 5 then return end
+            pending = nil
+            if attempts >= 3 then fail("The game did not confirm joining. Auto Play stopped."); return end
         end
         if not pick.Enabled then
             local hud = PlayerGui:FindFirstChild("HUD")
@@ -897,12 +929,13 @@ do
     Tabs.EventsFarm:AddDropdown("NewJoinTeam", {Title = "Team", Values = {"Auto", "Home", "Away"}, Default = "Auto", Callback = function(value) state.Team = value end})
     Tabs.EventsFarm:AddToggle("NewAutoPlay", {Title = "Auto Play", Description = "Clicks Play and an available team position", Default = false, Callback = function(value)
         state.Enabled, state.LastClick = value, -10
+        attempts, pending = 0, nil
         if not value then release(true); return end
-        if not input then
-            local ok, result = pcall(game.GetService, game, "VirtualInputManager")
-            if not ok then fail(result); return end
-            input = result
+        if type(mousemoveabs) ~= "function" or type(mouse1press) ~= "function" or type(mouse1release) ~= "function" then
+            fail("This executor does not support native mouse input for Auto Play.")
+            return
         end
+        input = {Move = mousemoveabs, Down = mouse1press, Up = mouse1release}
     end})
     links[#links + 1] = RunService.Heartbeat:Connect(function(dt)
         elapsed = elapsed + dt
