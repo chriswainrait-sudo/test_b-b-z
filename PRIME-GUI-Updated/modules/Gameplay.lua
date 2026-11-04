@@ -1332,7 +1332,7 @@ do
 end
 
     local config = {StealDanger = false, InfiniteDribble = false,
-        SilentAimShot = false, AutoDunk = false, PerfectShot = false,
+        SilentAimShot = false, AutoDunk = false, PerfectShot = false, BallManipulation = false,
         ShotTrajectory = false, ShotArcControl = false, QuickRelease = false}
     local controllers, connections, roundConnections = {}, {}, {}
     local alive = false
@@ -1567,12 +1567,135 @@ end
     local shotArcHeight = 10
     local quickEpoch, quickPending, quickSkip = 0, false, 0
     local psHooks = {}
+
+    local bmPending, bmFlight
+    local bmEpoch = 0
+    local bmTouch, bmStick = nil, Vector2.zero
+    local bmYaw, bmPitch = 0, 0
+    local bmRender = "PRIME_BallFlight_" .. game:GetService("HttpService"):GenerateGUID(false)
+    local function stopBallFlight()
+        bmEpoch = bmEpoch + 1
+        bmPending = nil
+        local flight = bmFlight
+        bmFlight, bmTouch, bmStick = nil, nil, Vector2.zero
+        if not flight then return end
+        RunService:UnbindFromRenderStep(bmRender)
+        if flight.Touch then flight.Touch:Disconnect() end
+        if perfectShotLock == flight.Lock then perfectShotLock = nil end
+        local camera = flight.Camera
+        if Workspace.CurrentCamera == camera and camera.CameraType == Enum.CameraType.Scriptable
+            and camera.CameraSubject == flight.Ball and not Workspace:FindFirstChild("CamRig") then
+            local character, _, humanoid = localParts()
+            camera.CameraSubject = flight.Subject and flight.Subject.Parent and flight.Subject or humanoid
+            camera.CameraType, camera.CFrame, camera.Focus = flight.Type, flight.Frame, flight.Focus
+        end
+        if userInputService.MouseBehavior == Enum.MouseBehavior.LockCenter then userInputService.MouseBehavior = flight.Mouse end
+        if userInputService.MouseIconEnabled == false then userInputService.MouseIconEnabled = flight.Icon end
+    end
+    local function ballOwned()
+        local controller = controllers.BallController
+        if not controller or type(controller.LocalPlayerIsBallNetworkOwner) ~= "function" then return false end
+        local ok, owns = pcall(controller.LocalPlayerIsBallNetworkOwner, controller)
+        if not ok or owns ~= true then return false end
+        if type(isnetworkowner) == "function" then
+            local success, result = pcall(isnetworkowner, GetCurrentBall())
+            if not success or result ~= true then return false end
+        end
+        return true
+    end
+    local function ballFlightValid(flight)
+        local character, _, humanoid = localParts()
+        local controller = controllers.BallController
+        if not alive or not config.BallManipulation or ScriptUnloaded or not playing()
+            or not humanoid or humanoid.Health <= 0 or character ~= flight.Character or LocalPlayer.Team ~= flight.Team
+            or GetCurrentBall() ~= flight.Ball or not flight.Ball.Parent or flight.Ball.Anchored
+            or os.clock() - flight.Started > 8 or Workspace.CurrentCamera ~= flight.Camera
+            or flight.Camera.CameraType ~= Enum.CameraType.Scriptable or flight.Camera.CameraSubject ~= flight.Ball
+            or Workspace:FindFirstChild("CamRig") or not ballOwned() then return false end
+        local ok, holder = pcall(controller.GetPlayerPossessingBall, controller)
+        if not ok or holder and (holder ~= LocalPlayer or flight.Released or os.clock() - flight.Started > 0.4) then return false end
+        if not holder then flight.Released = true end
+        return true
+    end
+    local function startBallFlight(request)
+        if request.epoch ~= bmEpoch then return end
+        stopBallFlight()
+        local ball, camera = request.ball, Workspace.CurrentCamera
+        if not alive or not config.BallManipulation or not playing() or not ballOwned() or not camera
+            or camera.CameraType == Enum.CameraType.Scriptable or ball.Anchored or not ball.Parent
+            or GetCurrentBall() ~= ball or LocalPlayer.Character ~= request.char then return end
+        local velocity = ball.AssemblyLinearVelocity
+        local look = velocity.Magnitude > 0.01 and velocity.Unit or camera.CFrame.LookVector
+        bmYaw, bmPitch = math.atan2(-look.X, -look.Z), math.asin(math.clamp(look.Y, -1, 1))
+        local flight = {Ball = ball, Camera = camera, Character = request.char, Team = LocalPlayer.Team,
+            Direction = look, Started = os.clock(), Speed = math.clamp(ball.AssemblyLinearVelocity.Magnitude, 40, 250),
+            Subject = camera.CameraSubject, Type = camera.CameraType, Frame = camera.CFrame, Focus = camera.Focus,
+            Mouse = userInputService.MouseBehavior, Icon = userInputService.MouseIconEnabled}
+        flight.Lock = {ball = ball, expires = flight.Started + 8}
+        bmFlight, perfectShotLock = flight, flight.Lock
+        camera.CameraSubject, camera.CameraType = ball, Enum.CameraType.Scriptable
+        if userInputService.MouseEnabled and userInputService:GetLastInputType() ~= Enum.UserInputType.Touch then
+            userInputService.MouseBehavior, userInputService.MouseIconEnabled = Enum.MouseBehavior.LockCenter, false
+        end
+        flight.Touch = ball.Touched:Connect(function(part)
+            if bmFlight ~= flight or not flight.Released or os.clock() - flight.Started < 0.12 then return end
+            if part:IsA("BasePart") and part.CanCollide and not part:IsDescendantOf(flight.Character) then stopBallFlight() end
+        end)
+        RunService:BindToRenderStep(bmRender, Enum.RenderPriority.Last.Value + 1, function(dt)
+            if bmFlight ~= flight then return end
+            if not ballFlightValid(flight) then stopBallFlight(); return end
+            if not userInputService:GetFocusedTextBox() then
+                bmYaw = bmYaw - bmStick.X * math.min(dt, 0.05) * 2.5
+                bmPitch = math.clamp(bmPitch + bmStick.Y * math.min(dt, 0.05) * 2, -1.4, 1.4)
+            end
+            local rotation = CFrame.fromOrientation(bmPitch, bmYaw, 0)
+            local focus = ball.Position + Vector3.new(0, 0.5, 0)
+            local desired = focus - rotation.LookVector * 9 + Vector3.new(0, 2, 0)
+            local params = RaycastParams.new()
+            params.FilterType = Enum.RaycastFilterType.Exclude
+            params.FilterDescendantsInstances = {ball, flight.Character}
+            local hit = Workspace:Raycast(focus, desired - focus, params)
+            if hit then desired = hit.Position + hit.Normal * 0.5 end
+            camera.CFrame, camera.Focus = CFrame.new(desired) * rotation, CFrame.new(focus)
+            flight.Direction = camera.CFrame.LookVector
+        end)
+    end
+    TrackScriptConnection(userInputService.InputBegan:Connect(function(input, processed)
+        if not bmFlight or processed or userInputService:GetFocusedTextBox() then return end
+        if input.UserInputType == Enum.UserInputType.Touch and input.Position.X > bmFlight.Camera.ViewportSize.X * 0.4 and not bmTouch then bmTouch = input end
+    end))
+    TrackScriptConnection(userInputService.InputChanged:Connect(function(input, processed)
+        if not bmFlight or userInputService:GetFocusedTextBox() then return end
+        local delta
+        if input.UserInputType == Enum.UserInputType.MouseMovement and not processed then delta = input.Delta
+        elseif input == bmTouch then delta = input.Delta
+        elseif input.KeyCode == Enum.KeyCode.Thumbstick2 then
+            bmStick = input.Position.Magnitude > 0.15 and Vector2.new(input.Position.X, input.Position.Y) or Vector2.zero
+        end
+        if delta then bmYaw = bmYaw - delta.X * 0.004; bmPitch = math.clamp(bmPitch - delta.Y * 0.004, -1.4, 1.4) end
+    end))
+    TrackScriptConnection(userInputService.InputEnded:Connect(function(input)
+        if input == bmTouch then bmTouch = nil end
+        if input.KeyCode == Enum.KeyCode.Thumbstick2 then bmStick = Vector2.zero end
+    end))
+    TrackScriptConnection(userInputService.WindowFocusReleased:Connect(function() if bmFlight then stopBallFlight() end end))
+    TrackScriptConnection(RunService.PreSimulation:Connect(function(dt)
+        if bmPending and os.clock() > bmPending.expires then bmPending = nil end
+        local flight = bmFlight
+        if not flight then return end
+        if not ballFlightValid(flight) then stopBallFlight(); return end
+        if not flight.Released then return end
+        local direction = flight.Direction or flight.Camera.CFrame.LookVector
+        flight.Ball.AssemblyLinearVelocity = direction * flight.Speed + Vector3.new(0, Workspace.Gravity * math.min(dt, 0.05) * 0.5, 0)
+    end))
+
     local function clearPerfect()
         psReq, perfectShotLock = nil, nil
         quickEpoch = quickEpoch + 1
         quickPending, quickSkip = false, 0
     end
     local function removePerfectHook()
+        stopBallFlight()
         clearPerfect()
         for _, h in ipairs(psHooks) do
             if h.node then
@@ -1600,8 +1723,21 @@ end
     end
     local function psWrap(fn)
         return function(destination, ...)
+            local pending = bmPending
+            if alive and config.BallManipulation and pending and typeof(destination) == "Vector3"
+                and os.clock() <= pending.expires and playing() and LocalPlayer.Character == pending.char
+                and GetCurrentBall() == pending.ball and pending.ball.Parent and ballOwned() then
+                local controller = controllers.BallController
+                local ok, character = pcall(controller.GetLastCharacterToPossessBall, controller)
+                if ok and character == pending.char then
+                    bmPending = nil
+                    local result = table.pack(fn(destination, ...))
+                    if alive and config.BallManipulation then startBallFlight(pending) end
+                    return unpackArgs(result, 1, result.n)
+                end
+            end
             local r = psReq
-            local valid = alive and (config.PerfectShot or config.ShotArcControl) and r and typeof(destination) == "Vector3"
+            local valid = alive and not config.BallManipulation and (config.PerfectShot or config.ShotArcControl) and r and typeof(destination) == "Vector3"
                 and os.clock() <= r.expires and playing() and LocalPlayer.Character == r.char
                 and GetCurrentBall() == r.ball and targetHoop() == r.hoop
                 and r.ball.Parent and r.hoop.Parent
@@ -1644,7 +1780,7 @@ end
         if ok then return value end
     end
     local function updatePerfectHook()
-        if not (config.PerfectShot or config.ShotArcControl) then
+        if not (config.PerfectShot or config.ShotArcControl or config.BallManipulation) then
             if psSignal or #psHooks > 0 then removePerfectHook() end
             return
         end
@@ -1854,7 +1990,7 @@ end
     local function updateSilentAim()
         local ability = controllers.AbilityController
         local signal = ability and ability.BallService and ability.BallService.Throw
-        if not (config.SilentAimShot or config.PerfectShot or config.ShotArcControl or config.QuickRelease) or not mutable(signal) then removeSilentAim() return end
+        if not (config.SilentAimShot or config.PerfectShot or config.ShotArcControl or config.QuickRelease or config.BallManipulation) or not mutable(signal) then removeSilentAim() return end
         if throwPatch and throwPatch.object == signal and rawget(signal, "Fire") == throwPatch.wrapper then return end
         removeSilentAim()
         local original = signal.Fire
@@ -1887,7 +2023,16 @@ end
             elseif self == signal and typeof(args[1]) == "Vector2" and args[2] ~= true then
                 quickPending = false
             end
-            if alive and self == signal and (config.SilentAimShot or config.PerfectShot or config.ShotArcControl)
+            if alive and config.BallManipulation and self == signal and typeof(args[1]) == "Vector2"
+                and args[2] ~= true and not s.Dunking and not s.Ability and not s.PumpFake
+                and (s.Shooting or s.AimAssist) and playing() and hasBall() and #psHooks > 0 then
+                local ball = GetCurrentBall()
+                if ball then
+                    stopBallFlight()
+                    bmPending = {ball = ball, char = LocalPlayer.Character, expires = os.clock() + 7, epoch = bmEpoch}
+                end
+            end
+            if alive and not config.BallManipulation and self == signal and (config.SilentAimShot or config.PerfectShot or config.ShotArcControl)
                 and typeof(args[1]) == "Vector2" and args[2] ~= true and not s.Dunking
                 and not s.Ability and not s.PumpFake and (s.Shooting or s.AimAssist) then
                 local char, root = localParts()
@@ -2025,7 +2170,7 @@ end
             if now - lastScan >= 2 then
                 lastScan = now
                 if not controllers.BallController or not controllers.MovementController or not controllers.Network
-                    or ((config.SilentAimShot or config.PerfectShot or config.ShotArcControl or config.QuickRelease) and not controllers.AbilityController) then discoverControllers() end
+                    or ((config.SilentAimShot or config.PerfectShot or config.ShotArcControl or config.QuickRelease or config.BallManipulation) and not controllers.AbilityController) then discoverControllers() end
             end
             updateSilentAim()
             updateInfinite()
@@ -2044,8 +2189,15 @@ end
     end
     local function setFeature(key, value)
         config[key] = value == true and not ScriptUnloaded
+        if config[key] and (key == "PerfectShot" or key == "BallManipulation") then
+            local other = key == "PerfectShot" and "BallManipulation" or "PerfectShot"
+            config[other] = false
+            local option = NexusUI.Options[other]
+            if option and option.Value then option:SetValue(false) end
+        end
+        if not config.BallManipulation then stopBallFlight() end
         if key == "AutoDunk" then setAutoDunk(config.AutoDunk) end
-        if not (config.PerfectShot or config.ShotArcControl) then psReq, perfectShotLock = nil, nil end
+        if not (config.PerfectShot or config.ShotArcControl) then psReq = nil; if not bmFlight then perfectShotLock = nil end end
         if not config.QuickRelease then
             quickEpoch = quickEpoch + 1
             quickPending = false
@@ -2077,6 +2229,8 @@ end
             DescriptionColor = key == "PerfectShot" and Color3.fromRGB(255, 70, 70) or nil, Default = false,
             Callback = function(value) setFeature(key, value) end})
     end
+    Tabs.EventsFarm:AddToggle("BallManipulation", {Title = "Ball Manipulation", Default = false,
+        Callback = function(value) setFeature("BallManipulation", value) end})
     Tabs.Main:AddSlider("ShotArcHeight", {Title = "Shot Arc Height", Default = 10, Min = 3, Max = 30,
         Step = 1, Rounding = 0, Callback = function(value)
             if type(value) == "number" and value == value then shotArcHeight = math.clamp(value, 3, 30) end
