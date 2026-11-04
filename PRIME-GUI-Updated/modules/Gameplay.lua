@@ -1806,7 +1806,7 @@ end
         local character, root, humanoid = localParts()
         if not root or not humanoid or humanoid.Health <= 0 then stopGuidedShot(); return end
         if shot.Phase == "Return" then
-            local target = root.Position + Vector3.new(30, 12, 0)
+            local target = root.Position + Vector3.new(30, 25, 0)
             if (shot.Ball.Position - target).Magnitude > 0.4 then return target, 420 end
             local service = NexusUI.State.BallExtraLiftService
             if type(service) ~= "table" or not service.Alive then
@@ -1829,7 +1829,7 @@ end
             if hold.Magnitude > 10 then hold = hold.Unit * 10 end
             lift.Velocity = hold + Vector3.new(0, math.clamp(rise + (targetHeight - root.Position.Y) * 7, -2, 36), 0)
             lift.Expires = os.clock() + 0.3
-            local entry = root.Position + Vector3.new(30, 12, 0)
+            local entry = root.Position + Vector3.new(30, 25, 0)
             if shot.HeroAngle >= math.pi * 60 and (shot.Ball.Position - entry).Magnitude <= 1 and math.abs(targetHeight - root.Position.Y) < 0.4 then
                 releaseExtraLift(shot)
                 shot.Phase = "Strike"
@@ -1838,7 +1838,7 @@ end
             end
             local angularSpeed = math.pi * 2 * (3.5 + 2 * fraction)
             local angle = math.min(math.pi * 60, shot.HeroAngle + math.min(angularSpeed * dt, math.pi / 4))
-            local target = root.Position + Vector3.new(math.cos(angle) * 30, 12, math.sin(angle) * 30)
+            local target = root.Position + Vector3.new(math.cos(angle) * 30, 25, math.sin(angle) * 30)
             local speed = angularSpeed * 30 + 45
             if (target - shot.Ball.Position).Magnitude <= speed * dt * 1.25 then shot.HeroAngle = angle end
             shot.AppliedAngular = Vector3.new(0.35, 1, 0.6) * 180
