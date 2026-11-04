@@ -831,29 +831,32 @@ do
             NexusUI:Notify({Title = "Auto Play", Content = tostring(message), Duration = 5})
         end)
     end
-    local function click(button, phase, slot)
-        if pressed or not input or not button or not button:IsA("GuiButton") or not visible(button) or userInputService:GetFocusedTextBox() then return false end
+    local function hitButton(button, x, y)
+        local ok, objects = pcall(PlayerGui.GetGuiObjectsAtPosition, PlayerGui, x, y)
+        if not ok or not objects then return false end
+        for _, object in ipairs(objects) do
+            if object == button or object:IsDescendantOf(button) then return true end
+            if object:IsA("GuiButton") or object.Active then return false end
+        end
+        return false
+    end
+    local function buttonPoint(button)
+        if not button or not button:IsA("GuiButton") or not visible(button) or button.Interactable == false then return end
         local size, position = button.AbsoluteSize, button.AbsolutePosition
         local camera = Workspace.CurrentCamera
-        if size.X < 2 or size.Y < 2 or not camera then return false end
+        if size.X < 2 or size.Y < 2 or not camera then return end
         local inset = game:GetService("GuiService"):GetGuiInset()
         local center = position + size / 2
-        local x, y
         for _, offset in ipairs({Vector2.zero, inset}) do
-            local px, py = math.floor(center.X + offset.X), math.floor(center.Y + offset.Y)
-            if px > 0 and py > 0 and px < camera.ViewportSize.X and py < camera.ViewportSize.Y then
-                local ok, objects = pcall(PlayerGui.GetGuiObjectsAtPosition, PlayerGui, px, py)
-                if ok and objects then
-                    for _, object in ipairs(objects) do
-                        if object == button or object:IsDescendantOf(button) then x, y = px, py; break end
-                        if object:IsA("GuiButton") or object.Active then break end
-                    end
-                end
-            end
-            if x then break end
+            local x, y = math.floor(center.X + offset.X), math.floor(center.Y + offset.Y)
+            if x > 0 and y > 0 and x < camera.ViewportSize.X and y < camera.ViewportSize.Y and hitButton(button, x, y) then return x, y, center end
         end
+    end
+    local function click(button, phase, slot)
+        if pressed or not input or userInputService:GetFocusedTextBox() then return false end
+        local x, y, center = buttonPoint(button)
         if not x then return false end
-        if candidate ~= button or candidatePosition ~= center then
+        if candidate ~= button or (candidatePosition - center).Magnitude > 2 then
             candidate, candidateAt, candidatePosition = button, os.clock(), center
             return false
         end
@@ -869,11 +872,7 @@ do
             local cancel = not active() or not state.Enabled or state.Epoch ~= current.Epoch
                 or not button.Parent or not visible(button) or slot and slot.Value ~= nil
                 or (button.AbsolutePosition + button.AbsoluteSize / 2 - center).Magnitude > 4
-            if not cancel then
-                local ok, objects = pcall(PlayerGui.GetGuiObjectsAtPosition, PlayerGui, x, y)
-                local top = ok and objects and objects[1]
-                cancel = not top or not (top == button or top:IsDescendantOf(button))
-            end
+            if not cancel then cancel = not hitButton(button, x, y) end
             local released, failure = release(cancel)
             if released == false then fail(failure) end
         end)
@@ -932,7 +931,7 @@ do
                 for _, button in ipairs(panel:GetDescendants()) do
                     if button:IsA("GuiButton") and visible(button) then
                         local slot = folder:FindFirstChild(button.Name)
-                        if slot and slot:IsA("ObjectValue") and slot.Value == nil then click(button, "JoinPending", slot); return end
+                        if slot and slot:IsA("ObjectValue") and slot.Value == nil and buttonPoint(button) then click(button, "JoinPending", slot); return end
                     end
                 end
             end
