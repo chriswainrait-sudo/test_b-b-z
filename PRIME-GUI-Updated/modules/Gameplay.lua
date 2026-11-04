@@ -1712,7 +1712,7 @@ end
         points[#points + 1] = {Position = target, Distance = length}
         local shot = {Ball = ball, Hoop = hoop, Character = request.char, Team = LocalPlayer.Team, Mode = mode,
             Started = os.clock(), Length = length, CurveLength = curveLength, Above = finish, Progress = 0, Index = 1, Points = points, Epoch = psEpoch,
-            Deadline = os.clock() + (mode == "Slow" and length / 5 + 15 or 10)}
+            Deadline = mode == "Slow" and math.huge or os.clock() + 10}
         shot.Lock = {ball = ball, expires = shot.Deadline}
         guidedShot, perfectShotLock = shot, shot.Lock
         return true
@@ -1731,7 +1731,7 @@ end
         if holder then return end
         shot.Released = true
         dt = math.clamp(dt or 1 / 60, 1 / 240, 1 / 15)
-        local speed = shot.Mode == "Slow" and 5 or 800
+        local speed = shot.Mode == "Slow" and 10 or 800
         if shot.Mode == "Rage" and (shot.Ball.Position - shot.Hoop.Position).Magnitude < 14 then speed = 160 end
         if not shot.Drop and (shot.Ball.Position - shot.Above).Magnitude <= 0.15 then shot.Drop, shot.Progress = true, shot.CurveLength end
         local progress = math.min(shot.Drop and shot.Length or shot.CurveLength, shot.Progress + speed * dt)
