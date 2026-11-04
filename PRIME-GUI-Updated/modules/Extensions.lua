@@ -801,6 +801,7 @@ do
 end
 
 
+--[=[
 do
     local state = {Alive = true, Enabled = false, Team = "Auto", LastClick = -10, Phase = "Ready", Since = 0, Epoch = 0}
     local elapsed, links = 0, {}
@@ -962,6 +963,7 @@ do
         for _, connection in ipairs(links) do connection:Disconnect() end
     end)
 end
+]=]
 
 do
     local farm = {Enabled = false, Epoch = 0, Lifetime = 45, Recent = setmetatable({}, {__mode = "k"})}
