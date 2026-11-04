@@ -42,7 +42,7 @@ do
         local target = controllers.PassController and controllers.PassController.LookingAt
         local ability = controllers.AbilityController
         local signal = ability and ability.BallService and ability.BallService.Pass
-        return settings, network and network.Gamemode, target, signal
+        return settings, network and network.Gamemode, target, signal, controllers.PassController
     end
     NexusUI.State.PassInputInfo = passInputInfo
     RegisterUnloadCallback(function() if NexusUI.State.PassInputInfo == passInputInfo then NexusUI.State.PassInputInfo = nil end end)
