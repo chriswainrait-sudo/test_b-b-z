@@ -793,7 +793,7 @@ Tabs.Main:AddToggle("AutoBlock", {
 
 do
     local pass = {Speed = 240, Enabled = true, Alive = true, LastOwn = -10, LastDirected = -10}
-    local selectedDropdown, watchedBall, ballConnection, input, pressed, passSignal, passConnection, watchBall
+    local selectedDropdown, watchedBall, ballConnection, passSignal, passConnection, watchBall
     local playerNames, rosterKey, refreshTime = {}, "", 0
     local function info()
         local getter = NexusUI.State.PassInputInfo
@@ -908,47 +908,72 @@ do
         pass.Holder = player
         if player then stopPassSpeed() end
     end)) end
-    local function releaseKey()
-        local current = pressed
-        pressed = nil
-        if not current then return end
-        pcall(input.SendKeyEvent, input, false, current.Key, false, game)
-        if current.Settings.KeybindPassing == true then current.Settings.KeybindPassing = current.Original end
-    end
-    local function sendSelected()
-        if pressed or not localPlayerHasBall() or ScriptUnloaded or os.clock() - pass.LastDirected < 1.25 then return false, "Pass is not ready" end
-        if userInputService:GetFocusedTextBox() then return false, "Finish typing before passing" end
-        local player = pass.SelectedId and Players:GetPlayerByUserId(pass.SelectedId)
-        if not validTeammate(player) then return false, "Selected teammate is unavailable" end
-        local settings, mode = info()
-        if type(settings) ~= "table" or table.isfrozen(settings) then return false, "Waiting for game input settings" end
-        local barrier = Workspace:FindFirstChild("BARRIER")
-        if barrier and barrier.CanCollide and (mode == "Match-2v2" or mode == "Match-1v1") then return false, "Wait until the barrier opens" end
-        local teammates = LocalPlayer.Team:GetPlayers()
-        local index = table.find(teammates, LocalPlayer)
-        if index then table.remove(teammates, index) end
-        index = table.find(teammates, player)
-        if not index or index > 4 then return false, "No native pass slot for this teammate" end
-        local key = ({Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three, Enum.KeyCode.Four})[index]
-        local custom = settings.KeyboardKeybinds and settings.KeyboardKeybinds["Pass Teammate " .. index]
-        if custom then
-            local ok, value = pcall(function() return Enum[custom[1]][custom[2]] end)
-            if not ok or not value or value.EnumType ~= Enum.KeyCode then return false, "Use a keyboard bind for this teammate slot" end
-            key = value
+    local viewFolder = Instance.new("Folder")
+    viewFolder.Name = "PRIME_PassView"
+    viewFolder.Parent = Workspace
+    local aimCamera = Instance.new("Camera")
+    aimCamera.Name = Workspace.CurrentCamera and Workspace.CurrentCamera.Name or "Camera"
+    aimCamera.CameraType = Enum.CameraType.Scriptable
+    aimCamera.Parent = viewFolder
+    local aimRecord
+    local function clearAim()
+        local record = aimRecord
+        aimRecord = nil
+        if record and not table.isfrozen(record.Controller) and record.Controller.LookingAt == record.Applied then
+            record.Controller.LookingAt = record.Native
         end
-        if not input then local ok, result = pcall(game.GetService, game, "VirtualInputManager"); if not ok then return false, tostring(result) end; input = result end
-        queuePassSpeed(player.Character)
-        pressed = {Key = key, Settings = settings, Original = settings.KeybindPassing}
-        settings.KeybindPassing = true
-        pass.LastDirected = os.clock()
-        local ok, failure = pcall(input.SendKeyEvent, input, true, key, false, game)
-        if not ok then releaseKey(); stopPassSpeed(); return false, tostring(failure) end
-        local current = pressed
-        task.delay(0.06, function() if pressed == current then releaseKey() end end)
+    end
+    local function aimAt(player)
+        if not validTeammate(player) or not localPlayerHasBall() or Workspace:FindFirstChild("CamRig") then clearAim(); return false end
+        local _, mode, _, _, controller = info()
+        local barrier = Workspace:FindFirstChild("BARRIER")
+        if barrier and barrier.CanCollide and (mode == "Match-2v2" or mode == "Match-1v1") then clearAim(); return false end
+        if type(controller) ~= "table" or table.isfrozen(controller) then clearAim(); return false end
+        local camera = Workspace.CurrentCamera
+        local root = LocalPlayer.Character.HumanoidRootPart
+        local target = player.Character.HumanoidRootPart
+        if not camera or camera.CameraType == Enum.CameraType.Scriptable then clearAim(); return false end
+        local origin = root.Position + Vector3.new(0, 2, 0)
+        if (target.Position - origin).Magnitude < 0.01 then clearAim(); return false end
+        aimCamera.Name, aimCamera.FieldOfView = camera.Name, camera.FieldOfView
+        aimCamera.CFrame = CFrame.lookAt(origin, target.Position)
+        aimCamera.Focus = CFrame.new(target.Position)
+        local direction = aimCamera.CFrame:PointToObjectSpace(target.Position)
+        if direction.Z >= 0 then clearAim(); return false end
+        if aimRecord and aimRecord.Controller ~= controller then clearAim() end
+        if not aimRecord then aimRecord = {Controller = controller, Native = controller.LookingAt}
+        elseif controller.LookingAt ~= aimRecord.Applied then aimRecord.Native = controller.LookingAt end
+        aimRecord.Applied = player.Character
+        controller.LookingAt = player.Character
         return true
     end
+    local function updateAim()
+        if not pass.Alive or ScriptUnloaded then clearAim(); return end
+        local id = pass.SelectedId or (pass.AimUntil and os.clock() < pass.AimUntil and pass.AimId)
+        local player = id and Players:GetPlayerByUserId(id)
+        if player then aimAt(player) else clearAim() end
+    end
+    local function sendTarget(player)
+        if not localPlayerHasBall() or ScriptUnloaded or os.clock() - pass.LastDirected < 1.25 then return false, "Pass is not ready" end
+        if userInputService:GetFocusedTextBox() then return false, "Finish typing before passing" end
+        if type(firesignal) ~= "function" then return false, "Pass button activation is unavailable" end
+        local mobile = PlayerGui:FindFirstChild("Mobile")
+        local panel = mobile and mobile:FindFirstChild("Ball")
+        local button = findGuiButton("Pass", panel and panel:FindFirstChild("Pass"))
+        if not button or not button:IsA("GuiButton") then return false, "Pass button is unavailable" end
+        if not aimAt(player) then return false, "Teammate targeting is not ready" end
+        pass.AimId, pass.AimUntil, pass.LastDirected = player.UserId, os.clock() + 0.35, os.clock()
+        queuePassSpeed(player.Character)
+        local ok, failure = pcall(firesignal, button.MouseButton1Click)
+        if not ok then pass.AimUntil = nil; clearAim(); stopPassSpeed(); return false, tostring(failure), true end
+        return true
+    end
+    local function sendSelected()
+        return sendTarget(pass.SelectedId and Players:GetPlayerByUserId(pass.SelectedId))
+    end
+    TrackScriptConnection(RunService.RenderStepped:Connect(updateAim))
     local function refreshPlayers()
-        local values, names, key, selected = {"Camera"}, {}, {}, "Camera"
+        local values, names, key, selected = {"Nearest"}, {}, {}, "Nearest"
         for _, player in ipairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and player.Team == LocalPlayer.Team and LocalPlayer.Team and LocalPlayer.Team.Name ~= "Visitor" then
                 values[#values + 1], names[player.Name] = player.Name, player.UserId
@@ -956,7 +981,7 @@ do
                 if player.UserId == pass.SelectedId then selected = player.Name end
             end
         end
-        table.sort(values, function(a, b) if a == "Camera" then return b ~= "Camera" elseif b == "Camera" then return false end return a:lower() < b:lower() end)
+        table.sort(values, function(a, b) if a == "Nearest" then return b ~= "Nearest" elseif b == "Nearest" then return false end return a:lower() < b:lower() end)
         table.sort(key)
         local signature = table.concat(key, "|")
         if signature == rosterKey and selectedDropdown then return end
@@ -965,8 +990,8 @@ do
     end
     Tabs.EventsFarm:AddSection("Pass Settings")
     Tabs.EventsFarm:AddToggle("NewPassSpeedEnabled", {Title = "Pass Speed", Description = "Applies to manual passes and Auto Pass", Default = true, Callback = function(value) pass.Enabled = value; if not value then stopPassSpeed() end end})
-    Tabs.EventsFarm:AddSlider("NewPassSpeed", {Title = "Pass Ball Speed", Description = "Maximum speed in studs per second; slows near the receiver", Min = 80, Max = 5000, Step = 10, Rounding = 0, Default = 240, Callback = function(value) pass.Speed = math.clamp(value, 80, 5000) end})
-    selectedDropdown = Tabs.EventsFarm:AddDropdown("NewPassTarget", {Title = "Pass Target", Values = {"Camera"}, Default = "Camera", Callback = function(value) pass.SelectedId = playerNames[value] end})
+    Tabs.EventsFarm:AddSlider("NewPassSpeed", {Title = "Pass Ball Speed", Description = "Maximum speed in studs per second; slows near the receiver", Min = 80, Max = 800, Step = 10, Rounding = 0, Default = 240, Callback = function(value) pass.Speed = math.clamp(value, 80, 800) end})
+    selectedDropdown = Tabs.EventsFarm:AddDropdown("NewPassTarget", {Title = "Pass Target", Values = {"Nearest"}, Default = "Nearest", Callback = function(value) clearAim(); pass.SelectedId = playerNames[value]; updateAim() end})
     Tabs.EventsFarm:AddButton({Title = "Pass to Selected", Callback = function()
         local ok, failure = sendSelected()
         if not ok then NexusUI:Notify({Title = "Pass", Content = failure, Duration = 4}) end
@@ -977,12 +1002,13 @@ do
     TrackScriptConnection(RunService.Heartbeat:Connect(function(dt)
         refreshTime = refreshTime + dt
         if refreshTime >= 0.5 and pass.Alive then refreshTime = 0; refreshPlayers(); bindPassSignal() end
+        updateAim()
     end))
-    TrackScriptConnection(LocalPlayer.CharacterRemoving:Connect(function() pass.LastOwn = -10; releaseKey(); stopPassSpeed() end))
-    TrackScriptConnection(LocalPlayer:GetPropertyChangedSignal("Team"):Connect(function() pass.LastOwn = -10; releaseKey(); stopPassSpeed(); rosterKey = ""; refreshPlayers() end))
+    TrackScriptConnection(LocalPlayer.CharacterRemoving:Connect(function() pass.LastOwn = -10; pass.AimUntil = nil; clearAim(); stopPassSpeed() end))
+    TrackScriptConnection(LocalPlayer:GetPropertyChangedSignal("Team"):Connect(function() pass.LastOwn = -10; pass.AimUntil = nil; clearAim(); stopPassSpeed(); rosterKey = ""; refreshPlayers() end))
 Tabs.EventsFarm:AddToggle("AutoPass", {
     Title = "Auto Pass",
-    Description = "Passes to an open teammate when a defender is close",
+    Description = "Passes to the selected teammate or the nearest teammate",
     Default = false,
     Callback = function(Value)
         AutoPassEnabled = Value
@@ -992,7 +1018,7 @@ Tabs.EventsFarm:AddToggle("AutoPass", {
         end
         if not Value then return end
 
-        if not pass.SelectedId and type(firesignal) ~= "function" then
+        if type(firesignal) ~= "function" then
             AutoPassEnabled = false
             task.defer(function()
                 local option = NexusUI.Options.AutoPass
@@ -1023,63 +1049,24 @@ Tabs.EventsFarm:AddToggle("AutoPass", {
             local humanoid = character and character:FindFirstChildOfClass("Humanoid")
             if not root or not camera or not humanoid or humanoid.Health <= 0 or camera.CameraType == Enum.CameraType.Scriptable then return end
 
-            local threatened = false
-            for _, player in ipairs(Players:GetPlayers()) do
-                local enemyRoot = player ~= LocalPlayer and player.Team ~= LocalPlayer.Team and player.Character
-                    and player.Character:FindFirstChild("HumanoidRootPart")
-                if enemyRoot and (root.Position - enemyRoot.Position).Magnitude <= 18 then
-                    threatened = true
-                    break
-                end
-            end
-            if not threatened then return end
-
             local target
             if pass.SelectedId then
                 local selected = Players:GetPlayerByUserId(pass.SelectedId)
-                if validTeammate(selected) then target = selected.Character end
+                if validTeammate(selected) then target = selected end
             else
-            local bestScreenDistance = math.huge
-            local screenCenter = camera.ViewportSize / 2
-            for _, player in ipairs(Players:GetPlayers()) do
-                local teammateRoot = player ~= LocalPlayer and player.Team == LocalPlayer.Team and player.Character
-                    and player.Character:FindFirstChild("HumanoidRootPart")
-                if teammateRoot and (root.Position - teammateRoot.Position).Magnitude <= 180 then
-                    local point, visible = camera:WorldToViewportPoint(teammateRoot.Position)
-                    local screenDistance = (Vector2.new(point.X, point.Y) - screenCenter).Magnitude
-                    if visible and screenDistance < bestScreenDistance then
-                        target = player.Character
-                        bestScreenDistance = screenDistance
+                local distance = math.huge
+                for _, player in ipairs(Players:GetPlayers()) do
+                    if validTeammate(player) then
+                        local current = (player.Character.HumanoidRootPart.Position - root.Position).Magnitude
+                        if current < distance then target, distance = player, current end
                     end
                 end
             end
-            end
             if not target then return end
 
-            local targetRoot = target:FindFirstChild("HumanoidRootPart")
-            for _, player in ipairs(Players:GetPlayers()) do
-                local enemyRoot = player ~= LocalPlayer and player.Team ~= LocalPlayer.Team and player.Character
-                    and player.Character:FindFirstChild("HumanoidRootPart")
-                if enemyRoot and (targetRoot.Position - enemyRoot.Position).Magnitude <= 14 then return end
-            end
-
-            local params = RaycastParams.new()
-            params.FilterType = Enum.RaycastFilterType.Exclude
-            params.FilterDescendantsInstances = {character, target, GetCurrentBall()}
-            if Workspace:Raycast(root.Position, targetRoot.Position - root.Position, params) then return end
-
-            attempted, lastPass = true, now
-            local ok, failure
-            if pass.SelectedId then ok, failure = sendSelected()
-            else
-                local mobile = PlayerGui:FindFirstChild("Mobile")
-                local panel = mobile and mobile:FindFirstChild("Ball")
-                local button = findGuiButton("Pass", panel and panel:FindFirstChild("Pass"))
-                if not button or not button:IsA("GuiButton") then return end
-                queuePassSpeed(target)
-                ok, failure = pcall(firesignal, button.MouseButton1Click)
-            end
-            if not ok then
+            local ok, failure, fatal = sendTarget(target)
+            if ok then attempted, lastPass = true, now end
+            if not ok and fatal then
                 stopPassSpeed()
                 AutoPassEnabled = false
                 local option = NexusUI.Options.AutoPass
@@ -1092,7 +1079,8 @@ Tabs.EventsFarm:AddToggle("AutoPass", {
 
     RegisterUnloadCallback(function()
         pass.Alive = false
-        releaseKey(); stopPassSpeed()
+        aimCamera:Destroy(); viewFolder:Destroy()
+        pass.AimUntil = nil; clearAim(); stopPassSpeed()
         if ballConnection then ballConnection:Disconnect() end
         if passConnection then passConnection:Disconnect() end
     end)
