@@ -669,134 +669,127 @@ Tabs.Main:AddToggle("NoRagdoll", {
 })
 
 
-do
-    local throwSignal, throwConnection, pending
-    local lastJump = -10
-    local function stopBlock()
-        AutoBlockEnabled, pending = false, nil
-        if AutoBlockConnection then AutoBlockConnection:Disconnect(); AutoBlockConnection = nil end
-        if throwConnection then throwConnection:Disconnect(); throwConnection = nil end
-        throwSignal = nil
-    end
-    local blockedAnimationIds = {
+Tabs.Main:AddToggle("AutoBlock", {
+    Title = "Auto Block",
+    Description = "auto ball block",
+    Default = false,
+    Callback = function(Value)
+        AutoBlockEnabled = Value
+        if Value then
+            local AUTO_BLOCK_RANGE = 15.5
+            local COOLDOWN = 0.5
+            local lastBlockTime = 0
+            local isBlocking = false
+            local blockedAnimationIds = {
 
-        "rbxassetid://111975541117141",
-        "rbxassetid://76228113424835",
-        "rbxassetid://77325057015467",
-        "rbxassetid://81077726192701",
-        "rbxassetid://97212719145496",
-        "rbxassetid://93637049934243",
-        "rbxassetid://86845329217363",
-        "rbxassetid://85237775854620",
-        "rbxassetid://76799100204102",
-        "rbxassetid://140044737112890",
-        "rbxassetid://75206041339842",
-        "rbxassetid://93426416285702",
-        "rbxassetid://92462901193976",
-        "rbxassetid://97638974924509",
-        "rbxassetid://103324749935306",
-        "rbxassetid://80419239450998",
-        "rbxassetid://83196870153629",
-        "rbxassetid://82883842626848",
-        "rbxassetid://135837817164001",
-        "rbxassetid://134971996964091",
-        "rbxassetid://139790361616736",
-        "rbxassetid://98718932626065",
-        "rbxassetid://90905743250824",
-        "rbxassetid://112630239907251",    
-        "rbxassetid://125858081984425",
-        "rbxassetid://89731716334782",
-        "rbxassetid://93824649798557",
-        "rbxassetid://115245242244708",
-        "rbxassetid://87091601850111",
-        "rbxassetid://86466269548335",
-        "rbxassetid://85842414472420",
-        "rbxassetid://122154195183566",
-        "rbxassetid://101759701167020",
-        "rbxassetid://91149657331993",
-        "rbxassetid://131932666588221",
-        "rbxassetid://100842460034279",
-        "rbxassetid://94452665372956",
-        "rbxassetid://83037726599973",
-        "rbxassetid://131498997481190",
-        "rbxassetid://115763852918123",
-        "rbxassetid://139765328348537"
+                "rbxassetid://111975541117141",
+                "rbxassetid://76228113424835",
+                "rbxassetid://77325057015467",
+                "rbxassetid://81077726192701",
+                "rbxassetid://97212719145496",
+                "rbxassetid://93637049934243",
+                "rbxassetid://86845329217363",
+                "rbxassetid://85237775854620",
+                "rbxassetid://76799100204102",
+                "rbxassetid://140044737112890",
+                "rbxassetid://75206041339842",
+                "rbxassetid://93426416285702",
+                "rbxassetid://92462901193976",
+                "rbxassetid://97638974924509",
+                "rbxassetid://103324749935306",
+                "rbxassetid://80419239450998",
+                "rbxassetid://83196870153629",
+                "rbxassetid://82883842626848",
+                "rbxassetid://135837817164001",
+                "rbxassetid://134971996964091",
+                "rbxassetid://139790361616736",
+                "rbxassetid://98718932626065",
+                "rbxassetid://90905743250824",
+                "rbxassetid://112630239907251",    
+                "rbxassetid://125858081984425",
+                "rbxassetid://89731716334782",
+                "rbxassetid://93824649798557",
+                "rbxassetid://115245242244708",
+                "rbxassetid://87091601850111",
+                "rbxassetid://86466269548335",
+                "rbxassetid://85842414472420",
+                "rbxassetid://122154195183566",
+                "rbxassetid://101759701167020",
+                "rbxassetid://91149657331993",
+                "rbxassetid://131932666588221",
+                "rbxassetid://100842460034279",
+                "rbxassetid://94452665372956",
+                "rbxassetid://83037726599973",
+                "rbxassetid://131498997481190",
+                "rbxassetid://115763852918123",
+                "rbxassetid://139765328348537"
 
-    }
-    local function hasBlockingAnimation(player)
-        local character = player and player.Character
-        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-        local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
-        if not animator then return false end
-        local matched = false
-        for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-            local animation = track.Animation
-            if animation and track.IsPlaying ~= false and (track.WeightCurrent == nil or track.WeightCurrent > 0.1) then
-                local id = animation.AnimationId
-                local name = animation.Name:lower():gsub("[^%w]", "")
-                if id == "rbxassetid://116636356590637" or id == "rbxassetid://126294399716902" or name:find("pumpfake", 1, true) then return false end
-                for _, blocked in ipairs(blockedAnimationIds) do if id == blocked then matched = true; break end end
+            }
+
+            
+            local function Jump()
+                local char = LocalPlayer.Character
+                if not char then return false end
+                local humanoid = char:FindFirstChildOfClass("Humanoid")
+                if not humanoid then return false end
+                if not isBlocking and humanoid.FloorMaterial ~= Enum.Material.Air and tick() - lastBlockTime > COOLDOWN then
+                    isBlocking = true
+                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                    lastBlockTime = tick()
+                    task.delay(0.2, function() isBlocking = false end)
+                    return true
+                end
             end
-        end
-        return matched
-    end
-    local function info()
-        local getter = NexusUI.State.PassInputInfo
-        if type(getter) == "function" then
-            local _, _, _, _, _, signal, controller = getter()
-            return signal, controller
-        end
-    end
-    local function enemy(player)
-        return player and player ~= LocalPlayer and player.Parent == Players and LocalPlayer.Team and player.Team
-            and player.Team ~= LocalPlayer.Team and player.Team.Name ~= "Visitor" and LocalPlayer.Team.Name ~= "Visitor"
-    end
-    local function bindThrow()
-        local signal, controller = info()
-        if signal == throwSignal and throwConnection then return end
-        if throwConnection then throwConnection:Disconnect(); throwConnection = nil end
-        throwSignal = signal
-        pending = nil
-        if not signal or not controller then return end
-        local ok, connection = pcall(function() return signal:Connect(function(destination)
-            if not AutoBlockEnabled or ScriptUnloaded or typeof(destination) ~= "Vector3" then return end
-            local success, player = pcall(controller.GetLastPlayerToPossessBall, controller)
-            if not success or not player then
-                local found, character = pcall(controller.GetLastCharacterToPossessBall, controller)
-                player = found and character and Players:GetPlayerFromCharacter(character) or nil
+
+            local function HasBlockingAnimation(player)
+                local char = player and player.Character
+                if not char then return false end
+                local humanoid = char:FindFirstChildOfClass("Humanoid")
+                if not humanoid then return false end
+                local animator = humanoid:FindFirstChildOfClass("Animator")
+                if not animator then return false end
+
+                for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                    if track and track.Animation then
+                        local animationId = track.Animation.AnimationId
+                        for _, blockedId in ipairs(blockedAnimationIds) do
+                            if animationId == blockedId then
+                                return true
+                            end
+                        end
+                    end
+                end
+
+                return false
             end
-            if enemy(player) then pending = {Player = player, Character = player.Character, Ball = GetCurrentBall(), Started = os.clock(), Controller = controller} end
-        end) end)
-        if ok then throwConnection = connection end
-    end
-    Tabs.Main:AddToggle("AutoBlock", {Title = "Auto Block", Description = "Blocks released shots without reacting to pump fakes", Default = false,
-        Callback = function(value)
-            stopBlock()
-            if not value then return end
-            AutoBlockEnabled = true
-            bindThrow()
+            
             AutoBlockConnection = TrackScriptConnection(RunService.Heartbeat:Connect(function()
-                if not AutoBlockEnabled or ScriptUnloaded then return end
-                bindThrow()
-                local shot = pending
-                if not shot then return end
-                local character = LocalPlayer.Character
-                local root = character and character:FindFirstChild("HumanoidRootPart")
-                local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-                local enemyRoot = shot.Character and shot.Character:FindFirstChild("HumanoidRootPart")
+                if not AutoBlockEnabled then return end
                 local ball = GetCurrentBall()
-                if os.clock() - shot.Started > 0.8 or not enemy(shot.Player) or shot.Player.Character ~= shot.Character
-                    or not root or not humanoid or humanoid.Health <= 0 or not enemyRoot or ball ~= shot.Ball or not ball or not ball.Parent then pending = nil; return end
-                local ok, holder = pcall(shot.Controller.GetPlayerPossessingBall, shot.Controller)
-                if not ok or holder or ball.Anchored or ball.AssemblyLinearVelocity.Magnitude < 5 or not hasBlockingAnimation(shot.Player) then return end
-                if (enemyRoot.Position - root.Position).Magnitude > 15.5 or (ball.Position - root.Position).Magnitude > 22 then return end
-                if humanoid.FloorMaterial == Enum.Material.Air or os.clock() - lastJump < 0.4 then return end
-                pending, lastJump = nil, os.clock()
-                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+                if not ball then return end
+                local char = LocalPlayer.Character
+                if not char then return end
+                local root = char:FindFirstChild("HumanoidRootPart")
+                if not root then return end
+
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p ~= LocalPlayer and p.Team ~= LocalPlayer.Team and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                        local dist = (p.Character.HumanoidRootPart.Position - root.Position).Magnitude
+                        if dist <= AUTO_BLOCK_RANGE and HasBlockingAnimation(p) then
+                            Jump()
+                            return
+                        end
+                    end
+                end
             end))
-        end})
-    RegisterUnloadCallback(stopBlock)
-end
+        else
+            if AutoBlockConnection then
+                AutoBlockConnection:Disconnect()
+                AutoBlockConnection = nil
+            end
+        end
+    end
+})
 
 do
     local pass = {Speed = 240, Enabled = true, Alive = true, LastOwn = -10, LastDirected = -10}
@@ -1611,9 +1604,10 @@ end
             or GetCurrentBall() ~= flight.Ball or not flight.Ball.Parent or flight.Ball.Anchored
             or Workspace.CurrentCamera ~= flight.Camera
             or flight.Camera.CameraType ~= Enum.CameraType.Scriptable or flight.Camera.CameraSubject ~= flight.Ball
-            or Workspace:FindFirstChild("CamRig") or not ballOwned() then return false end
+            or Workspace:FindFirstChild("CamRig") or not flight.Remote and not ballOwned() then return false end
         local ok, holder = pcall(controller.GetPlayerPossessingBall, controller)
-        if not ok or holder and (holder ~= LocalPlayer or flight.Released or os.clock() - flight.Started > 0.4) then return false end
+        local initialHolder = flight.Remote and flight.Thrower or LocalPlayer
+        if not ok or holder and (holder ~= initialHolder or flight.Released or os.clock() - flight.Started > 0.4) then return false end
         if not holder then flight.Released = true end
         return true
     end
@@ -1621,13 +1615,13 @@ end
         if request.epoch ~= bmEpoch then return end
         stopBallFlight()
         local ball, camera = request.ball, Workspace.CurrentCamera
-        if not alive or not config.BallManipulation or not playing() or not ballOwned() or not camera
+        if not alive or not config.BallManipulation or not playing() or not request.Remote and not ballOwned() or not camera
             or camera.CameraType == Enum.CameraType.Scriptable or ball.Anchored or not ball.Parent
             or GetCurrentBall() ~= ball or LocalPlayer.Character ~= request.char then return end
         local velocity = ball.AssemblyLinearVelocity
         local look = velocity.Magnitude > 0.01 and velocity.Unit or camera.CFrame.LookVector
         bmYaw, bmPitch = math.atan2(-look.X, -look.Z), math.asin(math.clamp(look.Y, -1, 1))
-        local flight = {Ball = ball, Camera = camera, Character = request.char, Team = LocalPlayer.Team,
+        local flight = {Ball = ball, Camera = camera, Character = request.char, Team = LocalPlayer.Team, Remote = request.Remote, Thrower = request.Thrower,
             Direction = look, Started = os.clock(), Speed = math.clamp(ball.AssemblyLinearVelocity.Magnitude, 40, 250),
             Subject = camera.CameraSubject, Type = camera.CameraType, Frame = camera.CFrame, Focus = camera.Focus,
             Mouse = userInputService.MouseBehavior, Icon = userInputService.MouseIconEnabled}
@@ -1849,7 +1843,7 @@ end
                 stopGuidedShot()
                 return
             end
-            shot.Lift = {Service = service, Character = character, Anchor = root.Position, Expires = os.clock() + 0.3, Velocity = Vector3.zero}
+            shot.Lift = {Service = service, Character = character, Anchor = root.Position, Started = os.clock(), Expires = os.clock() + 0.3, Velocity = Vector3.zero}
             shot.HeroAngle, shot.Phase = 0, "HeroOrbit"
             NexusUI.State.BallExtraLift = shot.Lift
         end
@@ -1857,10 +1851,12 @@ end
             local lift = shot.Lift
             if not lift or NexusUI.State.BallExtraLift ~= lift or not lift.Service.Alive then stopGuidedShot(); return end
             local fraction = math.clamp(shot.HeroAngle / (math.pi * 60), 0, 1)
-            local targetHeight = lift.Anchor.Y + 22 * fraction * fraction * (3 - 2 * fraction)
+            local ascent = math.clamp((os.clock() - lift.Started) / 2.2, 0, 1)
+            local targetHeight = lift.Anchor.Y + 40 * ascent * ascent * (3 - 2 * ascent)
+            local rise = ascent < 1 and 40 * 6 * ascent * (1 - ascent) / 2.2 or 0
             local hold = Vector3.new(lift.Anchor.X - root.Position.X, 0, lift.Anchor.Z - root.Position.Z) * 3
             if hold.Magnitude > 10 then hold = hold.Unit * 10 end
-            lift.Velocity = hold + Vector3.new(0, math.clamp((targetHeight - root.Position.Y) * 5, -1, 7), 0)
+            lift.Velocity = hold + Vector3.new(0, math.clamp(rise + (targetHeight - root.Position.Y) * 7, -2, 36), 0)
             lift.Expires = os.clock() + 0.3
             local entry = root.Position + Vector3.new(18, 12, 0)
             if shot.HeroAngle >= math.pi * 60 and (shot.Ball.Position - entry).Magnitude <= 1 and math.abs(targetHeight - root.Position.Y) < 0.4 then
@@ -2008,6 +2004,20 @@ end
                     bmPending = nil
                     local result = table.pack(fn(destination, ...))
                     if alive and config.BallManipulation then startBallFlight(pending) end
+                    return unpackArgs(result, 1, result.n)
+                end
+            end
+            if alive and config.BallManipulation and not bmFlight and not bmPending and typeof(destination) == "Vector3" and playing() then
+                local controller = controllers.BallController
+                local ok, character = pcall(controller and controller.GetLastCharacterToPossessBall, controller)
+                local found, player = pcall(Players.GetPlayerFromCharacter, Players, ok and character or nil)
+                local held, holder = pcall(controller and controller.GetPlayerPossessingBall, controller)
+                local ball = GetCurrentBall()
+                if found and player and player ~= LocalPlayer and player.Team and player.Team.Name ~= "Visitor"
+                    and held and holder ~= LocalPlayer and ball and ball.Parent and not ball.Anchored then
+                    local request = {ball = ball, char = LocalPlayer.Character, epoch = bmEpoch, Remote = true, Thrower = player}
+                    local result = table.pack(fn(destination, ...))
+                    if alive and config.BallManipulation then startBallFlight(request) end
                     return unpackArgs(result, 1, result.n)
                 end
             end
