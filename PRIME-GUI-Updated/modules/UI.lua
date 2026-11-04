@@ -5933,7 +5933,7 @@ Tabs = {
     Zone = Window:AddTab({ Title = "Zone"}),
     Misc = Window:AddTab({ Title = "Misc"}),
     Visuals = Window:AddTab({ Title = "Visuals"}),
-    EventsFarm = Window:AddTab({ Title = "Events (Farm)"}),
+    EventsFarm = Window:AddTab({ Title = "New"}),
     Other = Window:AddTab({ Title = "Other"})
 }
 
