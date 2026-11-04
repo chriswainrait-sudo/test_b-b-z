@@ -4916,75 +4916,9 @@ function NexusUI:CreateWindow(options)
             return currentSectionContent or leftColumn
         end
 
-        local toggleDescriptions = {
-            ["StealSupport"] = "Shows nearby steal threats.",
-            ["NoAbilityCooldown"] = "Removes local ability cooldowns.",
-            ["NoStun"] = "Prevents local stun effects.",
-            ["NoRagdoll"] = "Prevents local ragdoll effects.",
-            ["AutoBlock"] = "Automatically blocks nearby shots.",
-            ["NewPassSpeedEnabled"] = "Adjusts the speed of manual and automatic passes.",
-            ["AutoPass"] = "Passes to the selected teammate or the nearest teammate.",
-            ["AutoBlockDunk"] = "Jumps to block nearby dunks.",
-            ["StealDanger"] = "Warns when an opponent attempts a steal.",
-            ["InfiniteDribble"] = "Allows repeated dribbling.",
-            ["SilentAimShot"] = "Aims shots at your scoring hoop.",
-            ["PerfectShot"] = "Helps release shots at the right moment.",
-            ["ShotTrajectory"] = "Shows the predicted path of your shot.",
-            ["QuickRelease"] = "Releases shots faster.",
-            ["ShotArcControl"] = "Adjusts the height of your shots.",
-            ["AutoDunk"] = "Automatically dunks when in range.",
-            ["NoBarrier"] = "Lets your character move through the inbound barrier.",
-            ["NoStealFall"] = "Reduces knockdowns after stealing.",
-            ["BallESP"] = "Highlights the basketball.",
-            ["ShotPowerModifier"] = "Adjusts shot power.",
-            ["AntiSlip"] = "Prevents slipping.",
-            ["InfinitePumpFakes"] = "Allows unlimited pump fakes.",
-            ["FOVChanger"] = "Adjusts your field of view.",
-            ["NoShadow"] = "Removes shadows.",
-            ["Saturation"] = "Adjusts color intensity.",
-            ["TimeChanger"] = "Changes the time of day.",
-            ["CS_Speed"] = "Increases movement speed.",
-            ["CS_Jump"] = "Increases jump height.",
-            ["CS_InfiniteJump"] = "Lets you jump in midair.",
-            ["CS_Fly"] = "Lets your character fly.",
-            ["CS_Noclip"] = "Lets you move through obstacles.",
-            ["CS_ESP"] = "Shows player markers.",
-            ["CS_Boxes"] = "Draws boxes around players.",
-            ["CS_Names"] = "Shows player names.",
-            ["CS_Health"] = "Shows player health.",
-            ["CS_StyleESP"] = "Shows each player's style.",
-            ["CS_ZoneESP"] = "Shows each player's zone.",
-            ["CS_Distance"] = "Shows the distance to players.",
-            ["CS_BallESP"] = "Marks the basketball.",
-            ["CS_BallOwnerESP"] = "Marks the player holding the ball.",
-            ["CS_HoopESP"] = "Marks both hoops.",
-            ["CS_Trajectory"] = "Shows the predicted ball path.",
-            ["CS_NoStealCD"] = "Removes the local steal cooldown.",
-            ["CS_DribbleBoost"] = "Speeds up dribbling in the zone.",
-            ["CS_BlockRange"] = "Increases blocking range in the zone.",
-            ["CS_AlwaysRun"] = "Keeps your character sprinting.",
-            ["CS_ExtendedDunk"] = "Increases dunk range in the zone.",
-            ["CS_QuickRelease"] = "Speeds up shots in the zone.",
-            ["CS_ExtraPumpFakes"] = "Allows more pump fakes in the zone.",
-            ["CS_ExtendedChain"] = "Allows longer dribble chains in the zone.",
-            ["CS_PassBoost"] = "Speeds up passes in the zone.",
-            ["CS_AntiSlow"] = "Reduces movement slowdowns.",
-            ["CS_InventoryHUD"] = "Shows your style, spins and cooldowns.",
-            ["CS_NoCameraShake"] = "Removes camera shake.",
-            ["CS_NoDynamicFOV"] = "Keeps your field of view steady.",
-            ["CS_LowGraphics"] = "Reduces visual detail for better performance.",
-            ["NewAutoPlay"] = "Automatically joins a match and an available team position.",
-            ["AutoFarmCandy"] = "Collects candy and returns you to your starting position, with anti-AFK.",
-        }
-
         function tabObject:AddToggle(id, data)
-            data = data or {}
-            local showDescription = tostring(tabData and tabData.Title or ""):lower() ~= "settings"
-            if showDescription then
-                data.Description = toggleDescriptions[id] or data.Description or (tostring(data.Title or id) .. ".")
-                data.DescriptionColor = nil
-            end
             local rowHeight = IS_MOBILE and 30 or 26
+            local showDescription = data and data.ShowDescription == true
             local toggleFrame = Instance.new("Frame")
             toggleFrame.Size = UDim2.new(1, 0, 0, rowHeight)
             if showDescription then toggleFrame.AutomaticSize = Enum.AutomaticSize.Y end
@@ -5073,7 +5007,7 @@ function NexusUI:CreateWindow(options)
                 descriptionLabel.Text = tostring(data.Description or "")
                 descriptionLabel.TextWrapped = true
                 descriptionLabel.TextScaled = false
-                descriptionLabel.TextSize = IS_MOBILE and 11 or 10
+                descriptionLabel.TextSize = 12
                 descriptionLabel.FontFace = Font.new(FONT_BODY, Enum.FontWeight.Regular, Enum.FontStyle.Normal)
                 descriptionLabel.TextXAlignment = Enum.TextXAlignment.Left
                 descriptionLabel.TextYAlignment = Enum.TextYAlignment.Top
