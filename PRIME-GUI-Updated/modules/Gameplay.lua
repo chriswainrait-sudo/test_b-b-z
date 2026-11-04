@@ -1604,10 +1604,9 @@ end
             or GetCurrentBall() ~= flight.Ball or not flight.Ball.Parent or flight.Ball.Anchored
             or Workspace.CurrentCamera ~= flight.Camera
             or flight.Camera.CameraType ~= Enum.CameraType.Scriptable or flight.Camera.CameraSubject ~= flight.Ball
-            or Workspace:FindFirstChild("CamRig") or not flight.Remote and not ballOwned() then return false end
+            or Workspace:FindFirstChild("CamRig") or not ballOwned() then return false end
         local ok, holder = pcall(controller.GetPlayerPossessingBall, controller)
-        local initialHolder = flight.Remote and flight.Thrower or LocalPlayer
-        if not ok or holder and (holder ~= initialHolder or flight.Released or os.clock() - flight.Started > 0.4) then return false end
+        if not ok or holder and (holder ~= LocalPlayer or flight.Released or os.clock() - flight.Started > 0.4) then return false end
         if not holder then flight.Released = true end
         return true
     end
@@ -1615,13 +1614,13 @@ end
         if request.epoch ~= bmEpoch then return end
         stopBallFlight()
         local ball, camera = request.ball, Workspace.CurrentCamera
-        if not alive or not config.BallManipulation or not playing() or not request.Remote and not ballOwned() or not camera
+        if not alive or not config.BallManipulation or not playing() or not ballOwned() or not camera
             or camera.CameraType == Enum.CameraType.Scriptable or ball.Anchored or not ball.Parent
             or GetCurrentBall() ~= ball or LocalPlayer.Character ~= request.char then return end
         local velocity = ball.AssemblyLinearVelocity
         local look = velocity.Magnitude > 0.01 and velocity.Unit or camera.CFrame.LookVector
         bmYaw, bmPitch = math.atan2(-look.X, -look.Z), math.asin(math.clamp(look.Y, -1, 1))
-        local flight = {Ball = ball, Camera = camera, Character = request.char, Team = LocalPlayer.Team, Remote = request.Remote, Thrower = request.Thrower,
+        local flight = {Ball = ball, Camera = camera, Character = request.char, Team = LocalPlayer.Team,
             Direction = look, Started = os.clock(), Speed = math.clamp(ball.AssemblyLinearVelocity.Magnitude, 40, 250),
             Subject = camera.CameraSubject, Type = camera.CameraType, Frame = camera.CFrame, Focus = camera.Focus,
             Mouse = userInputService.MouseBehavior, Icon = userInputService.MouseIconEnabled}
@@ -1806,36 +1805,8 @@ end
     local function extraPlayerStage(shot, dt)
         local character, root, humanoid = localParts()
         if not root or not humanoid or humanoid.Health <= 0 then stopGuidedShot(); return end
-        if shot.Phase == "Enemies" then
-            while shot.EnemyIndex <= #shot.Enemies do
-                local entry = shot.Enemies[shot.EnemyIndex]
-                local player, enemyCharacter = entry.Player, entry.Character
-                local enemyRoot = enemyCharacter and enemyCharacter:FindFirstChild("HumanoidRootPart")
-                local enemyHumanoid = enemyCharacter and enemyCharacter:FindFirstChildOfClass("Humanoid")
-                if player.Parent ~= Players or not opponent(player) or player.Character ~= enemyCharacter or not enemyRoot or not enemyHumanoid or enemyHumanoid.Health <= 0 then
-                    shot.EnemyIndex, shot.EnemyAngle, shot.EnemyEntered = shot.EnemyIndex + 1, 0, nil
-                else
-                    local y = math.max(enemyRoot.Position.Y + 13, shot.Hoop.Position.Y + 9, shot.OwnHoop.Position.Y + 9)
-                    local center = Vector3.new(enemyRoot.Position.X, y, enemyRoot.Position.Z)
-                    local entryPoint = center + Vector3.new(7, 0, 0)
-                    if not shot.EnemyEntered then
-                        if (shot.Ball.Position - entryPoint).Magnitude > 0.4 then return entryPoint, 360 end
-                        shot.EnemyEntered = true
-                    end
-                    if shot.EnemyAngle >= math.pi * 2 and (shot.Ball.Position - entryPoint).Magnitude <= 1 then
-                        shot.EnemyIndex, shot.EnemyAngle, shot.EnemyEntered = shot.EnemyIndex + 1, 0, nil
-                    else
-                        local angle = math.min(math.pi * 2, shot.EnemyAngle + math.pi * 2 / 0.65 * dt)
-                        local target = center + Vector3.new(math.cos(angle) * 7, 0, math.sin(angle) * 7)
-                        if (target - shot.Ball.Position).Magnitude <= 180 * dt * 1.25 then shot.EnemyAngle = angle end
-                        return target, 180
-                    end
-                end
-            end
-            shot.Phase = "Return"
-        end
         if shot.Phase == "Return" then
-            local target = root.Position + Vector3.new(18, 12, 0)
+            local target = root.Position + Vector3.new(30, 12, 0)
             if (shot.Ball.Position - target).Magnitude > 0.4 then return target, 420 end
             local service = NexusUI.State.BallExtraLiftService
             if type(service) ~= "table" or not service.Alive then
@@ -1858,7 +1829,7 @@ end
             if hold.Magnitude > 10 then hold = hold.Unit * 10 end
             lift.Velocity = hold + Vector3.new(0, math.clamp(rise + (targetHeight - root.Position.Y) * 7, -2, 36), 0)
             lift.Expires = os.clock() + 0.3
-            local entry = root.Position + Vector3.new(18, 12, 0)
+            local entry = root.Position + Vector3.new(30, 12, 0)
             if shot.HeroAngle >= math.pi * 60 and (shot.Ball.Position - entry).Magnitude <= 1 and math.abs(targetHeight - root.Position.Y) < 0.4 then
                 releaseExtraLift(shot)
                 shot.Phase = "Strike"
@@ -1866,9 +1837,9 @@ end
                 return
             end
             local angularSpeed = math.pi * 2 * (3.5 + 2 * fraction)
-            local angle = math.min(math.pi * 60, shot.HeroAngle + angularSpeed * dt)
-            local target = root.Position + Vector3.new(math.cos(angle) * 18, 12, math.sin(angle) * 18)
-            local speed = angularSpeed * 18 + 45
+            local angle = math.min(math.pi * 60, shot.HeroAngle + math.min(angularSpeed * dt, math.pi / 4))
+            local target = root.Position + Vector3.new(math.cos(angle) * 30, 12, math.sin(angle) * 30)
+            local speed = angularSpeed * 30 + 45
             if (target - shot.Ball.Position).Magnitude <= speed * dt * 1.25 then shot.HeroAngle = angle end
             shot.AppliedAngular = Vector3.new(0.35, 1, 0.6) * 180
             shot.Ball.AssemblyAngularVelocity = shot.AppliedAngular
@@ -1885,16 +1856,7 @@ end
         local alpha = math.clamp((progress - first.Distance) / math.max(last.Distance - first.Distance, 0.0001), 0, 1)
         local target = first.Position + (last.Position - first.Position) * alpha
         if progress >= shot.ShowLength and (target - shot.Ball.Position).Magnitude <= 0.15 then
-            shot.Enemies, shot.EnemyIndex, shot.EnemyAngle = {}, 1, 0
-            for _, player in ipairs(Players:GetPlayers()) do
-                local character = player.Character
-                local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-                if player.Parent == Players and opponent(player) and character and character:FindFirstChild("HumanoidRootPart") and humanoid and humanoid.Health > 0 then
-                    shot.Enemies[#shot.Enemies + 1] = {Player = player, Character = character}
-                end
-            end
-            table.sort(shot.Enemies, function(a, b) return a.Player.UserId < b.Player.UserId end)
-            shot.Phase = "Enemies"
+            shot.Phase = "Return"
             return extraPlayerStage(shot, dt)
         end
         if (target - shot.Ball.Position).Magnitude <= speed * dt * 1.25 then shot.ShowProgress, shot.ShowIndex = progress, index end
@@ -2004,20 +1966,6 @@ end
                     bmPending = nil
                     local result = table.pack(fn(destination, ...))
                     if alive and config.BallManipulation then startBallFlight(pending) end
-                    return unpackArgs(result, 1, result.n)
-                end
-            end
-            if alive and config.BallManipulation and not bmFlight and not bmPending and typeof(destination) == "Vector3" and playing() then
-                local controller = controllers.BallController
-                local ok, character = pcall(controller and controller.GetLastCharacterToPossessBall, controller)
-                local found, player = pcall(Players.GetPlayerFromCharacter, Players, ok and character or nil)
-                local held, holder = pcall(controller and controller.GetPlayerPossessingBall, controller)
-                local ball = GetCurrentBall()
-                if found and player and player ~= LocalPlayer and player.Team and player.Team.Name ~= "Visitor"
-                    and held and holder ~= LocalPlayer and ball and ball.Parent and not ball.Anchored then
-                    local request = {ball = ball, char = LocalPlayer.Character, epoch = bmEpoch, Remote = true, Thrower = player}
-                    local result = table.pack(fn(destination, ...))
-                    if alive and config.BallManipulation then startBallFlight(request) end
                     return unpackArgs(result, 1, result.n)
                 end
             end
