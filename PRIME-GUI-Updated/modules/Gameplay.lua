@@ -801,7 +801,7 @@ Tabs.Main:AddToggle("AutoBlock", {
     end
 })
 
-Tabs.Main:AddToggle("AutoPass", {
+Tabs.EventsFarm:AddToggle("AutoPass", {
     Title = "Auto Pass",
     Description = "Passes to an open teammate when a defender is close",
     Default = false,
