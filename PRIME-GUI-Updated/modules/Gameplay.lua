@@ -968,9 +968,6 @@ do
         if not ok then pass.AimUntil = nil; clearAim(); stopPassSpeed(); return false, tostring(failure), true end
         return true
     end
-    local function sendSelected()
-        return sendTarget(pass.SelectedId and Players:GetPlayerByUserId(pass.SelectedId))
-    end
     TrackScriptConnection(RunService.RenderStepped:Connect(updateAim))
     local function refreshPlayers()
         local values, names, key, selected = {"Nearest"}, {}, {}, "Nearest"
@@ -992,10 +989,6 @@ do
     Tabs.EventsFarm:AddToggle("NewPassSpeedEnabled", {Title = "Pass Speed", Description = "Applies to manual passes and Auto Pass", Default = true, Callback = function(value) pass.Enabled = value; if not value then stopPassSpeed() end end})
     Tabs.EventsFarm:AddSlider("NewPassSpeed", {Title = "Pass Ball Speed", Description = "Maximum speed in studs per second; slows near the receiver", Min = 80, Max = 800, Step = 10, Rounding = 0, Default = 240, Callback = function(value) pass.Speed = math.clamp(value, 80, 800) end})
     selectedDropdown = Tabs.EventsFarm:AddDropdown("NewPassTarget", {Title = "Pass Target", Values = {"Nearest"}, Default = "Nearest", Callback = function(value) clearAim(); pass.SelectedId = playerNames[value]; updateAim() end})
-    Tabs.EventsFarm:AddButton({Title = "Pass to Selected", Callback = function()
-        local ok, failure = sendSelected()
-        if not ok then NexusUI:Notify({Title = "Pass", Content = failure, Duration = 4}) end
-    end})
     refreshPlayers()
     watchBall(GetCurrentBall())
     bindPassSignal()
