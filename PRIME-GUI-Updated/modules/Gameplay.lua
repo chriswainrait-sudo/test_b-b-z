@@ -1715,11 +1715,92 @@ end
         shot.Points, shot.Length, shot.CurveLength, shot.Above = points, length, curveLength, finish
         shot.Progress, shot.Index, shot.Drop = 0, 1, nil
     end
+    local function planExtraCourtShot(shot)
+        local hoops = Workspace:FindFirstChild("Hoops")
+        local own
+        if hoops then for _, side in ipairs(hoops:GetChildren()) do
+            local hoop = side:FindFirstChild("Hoop")
+            if hoop and hoop:IsA("BasePart") and hoop ~= shot.Hoop then own = hoop; break end
+        end end
+        if not own then return false end
+        local target = shot.Hoop.Position
+        local axis = Vector3.new(target.X - own.Position.X, 0, target.Z - own.Position.Z)
+        if axis.Magnitude < 20 then return false end
+        local forward = axis.Unit
+        local right = Vector3.new(-forward.Z, 0, forward.X)
+        local midpoint = (target + own.Position) / 2
+        local floor, closest = nil, math.huge
+        local courts = Workspace:FindFirstChild("Courts2") or Workspace:FindFirstChild("Court")
+        if courts then for _, part in ipairs(courts:GetDescendants()) do
+            if part:IsA("BasePart") and part.Name == "Floor" then
+                local distance = (part.Position - midpoint).Magnitude
+                if distance < closest then floor, closest = part, distance end
+            end
+        end end
+        local ground, halfLength, halfWidth
+        if floor then
+            ground = floor.Position.Y + floor.Size.Y / 2
+            halfLength = (math.abs(floor.CFrame.RightVector:Dot(forward)) * floor.Size.X + math.abs(floor.CFrame.LookVector:Dot(forward)) * floor.Size.Z) / 2 - 12
+            halfWidth = (math.abs(floor.CFrame.RightVector:Dot(right)) * floor.Size.X + math.abs(floor.CFrame.LookVector:Dot(right)) * floor.Size.Z) / 2 - 12
+        else
+            local params = RaycastParams.new()
+            params.FilterType = Enum.RaycastFilterType.Exclude
+            params.FilterDescendantsInstances = {shot.Ball, shot.Character, hoops}
+            local hit = Workspace:Raycast(midpoint + Vector3.new(0, 10, 0), Vector3.new(0, -512, 0), params)
+            if not hit or hit.Normal.Y < 0.6 then return false end
+            ground, halfLength, halfWidth = hit.Position.Y, axis.Magnitude / 2 - 6, axis.Magnitude * 0.27
+        end
+        halfLength, halfWidth = math.max(halfLength, 20), math.max(halfWidth, 14)
+        local height = math.max(ground + 25, target.Y + 9, own.Position.Y + 9)
+        local center = Vector3.new(midpoint.X, height, midpoint.Z)
+        local points, length, previous = {{Position = shot.Ball.Position, Distance = 0, Speed = 180, Phase = "Launch"}}, 0, shot.Ball.Position
+        local function add(point, speed, phase)
+            local distance = (point - previous).Magnitude
+            if distance < 0.00001 then return end
+            length = length + distance
+            points[#points + 1], previous = {Position = point, Distance = length, Speed = speed, Phase = phase}, point
+        end
+        local function bridge(destination, speed, phase)
+            local start = previous
+            local top = math.max(start.Y, destination.Y) + 6
+            local a, b = Vector3.new(start.X, top, start.Z), Vector3.new(destination.X, top, destination.Z)
+            for i = 1, 32 do
+                local t, u = i / 32, 1 - i / 32
+                add(start * (u * u * u) + a * (3 * u * u * t) + b * (3 * u * t * t) + destination * (t * t * t), speed, phase)
+            end
+        end
+        local relative = shot.Ball.Position - center
+        local angle = math.atan2(relative:Dot(right) / halfWidth, relative:Dot(forward) / halfLength)
+        local function perimeter(t)
+            return center + forward * (math.cos(t) * halfLength) + right * (math.sin(t) * halfWidth)
+        end
+        bridge(perimeter(angle), 220, "Launch")
+        for i = 1, 1280 do
+            local t = i / 1280
+            add(perimeter(angle + math.pi * 20 * t), 220 + 880 * t ^ 0.75, "Laps")
+        end
+        local spiralStart = center + forward * 28
+        bridge(spiralStart, 420, "Center")
+        for i = 1, 192 do
+            local t = i / 192
+            local radius, theta = 28 * (1 - t) ^ 0.8, math.pi * 8 * t
+            add(center + forward * (math.cos(theta) * radius) + right * (math.sin(theta) * radius) + Vector3.new(0, 28 * t, 0), 80 + 180 * t, "Spiral")
+        end
+        local enemyCenter = target - forward * 10 + Vector3.new(0, 10, 0)
+        bridge(enemyCenter + right * 8, 650, "EnemyApproach")
+        for i = 1, 128 do
+            local t, theta = i / 128, math.pi * 4 * i / 128
+            add(enemyCenter + right * (math.cos(theta) * 8) + forward * (math.sin(theta) * 8) + Vector3.new(0, math.sin(theta) * 2, 0), 95 + 105 * t, "EnemyOrbit")
+        end
+        bridge(own.Position + forward * 8 + Vector3.new(0, 10, 0), 800, "OwnHoop")
+        shot.ShowPoints, shot.ShowLength, shot.ShowProgress, shot.ShowIndex = points, length, 0, 1
+        shot.Phase, shot.NativeAngular, shot.OwnHoop = "Show", shot.Ball.AssemblyAngularVelocity, own
+        return true
+    end
     local function extraShotTarget(shot, dt)
-        local fraction = shot.ShowProgress / shot.ShowLength
-        local speed = 16 + 90 * fraction * fraction
-        local progress = math.min(shot.ShowLength, shot.ShowProgress + speed * dt)
         local points, index = shot.ShowPoints, shot.ShowIndex
+        local speed = points[math.min(index + 1, #points)].Speed
+        local progress = math.min(shot.ShowLength, shot.ShowProgress + speed * dt)
         while index < #points - 1 and points[index + 1].Distance < progress do index = index + 1 end
         local first, last = points[index], points[index + 1]
         local alpha = math.clamp((progress - first.Distance) / math.max(last.Distance - first.Distance, 0.0001), 0, 1)
@@ -1730,7 +1811,8 @@ end
             return
         end
         if (target - shot.Ball.Position).Magnitude <= speed * dt * 1.25 then shot.ShowProgress, shot.ShowIndex = progress, index end
-        shot.AppliedAngular = Vector3.new(0.35, 1, 0.6) * (12 + 95 * fraction)
+        shot.ShowStage = last.Phase
+        shot.AppliedAngular = Vector3.new(0.35, 1, 0.6) * (35 + 125 * shot.ShowProgress / shot.ShowLength)
         shot.Ball.AssemblyAngularVelocity = shot.AppliedAngular
         return target, speed
     end
@@ -1748,44 +1830,8 @@ end
         local shot = {Ball = ball, Hoop = hoop, Character = request.char, Team = LocalPlayer.Team, Mode = mode,
             Started = os.clock(), Epoch = psEpoch}
         planGuidedShot(shot)
-        if mode == "Extra" then
-            local params = RaycastParams.new()
-            params.FilterType = Enum.RaycastFilterType.Exclude
-            local excluded = {ball}
-            for _, player in ipairs(Players:GetPlayers()) do if player.Character then excluded[#excluded + 1] = player.Character end end
-            local hoops = Workspace:FindFirstChild("Hoops")
-            if hoops then excluded[#excluded + 1] = hoops end
-            params.FilterDescendantsInstances = excluded
-            params.IgnoreWater = true
-            local floor = Workspace:Raycast(ball.Position + Vector3.new(0, 4, 0), Vector3.new(0, -512, 0), params)
-            if not floor or floor.Normal.Y < 0.6 then return false end
-            local origin = ball.Position
-            local flat = Vector3.new(hoop.Position.X - origin.X, 0, hoop.Position.Z - origin.Z)
-            local forward = flat.Magnitude > 0.01 and flat.Unit or Vector3.new(0, 0, -1)
-            local right = Vector3.new(-forward.Z, 0, forward.X)
-            local level = floor.Position.Y + 25
-            local points, length, previous = {{Position = origin, Distance = 0}}, 0, origin
-            for i = 1, 160 do
-                local t, point = i / 160
-                if t <= 0.45 then
-                    local u = t / 0.45
-                    local radius, angle = 6 * math.sin(u * math.pi / 2), u * math.pi * 4
-                    point = origin + forward * (4 * u + math.sin(angle) * radius) + right * (math.cos(angle) * radius)
-                        + Vector3.new(0, (level - origin.Y) * u * u * (3 - 2 * u), 0)
-                else
-                    local u = (t - 0.45) / 0.55
-                    local radius, angle = 6 * (1 - u) ^ 0.65, u * math.pi * 4
-                    point = origin + forward * (4 + math.min(flat.Magnitude * 0.18, 20) * u + math.sin(2 * angle) * radius * 0.6)
-                        + right * (math.cos(angle) * radius) + Vector3.new(0, level - origin.Y + math.sin(angle) * 3 * (1 - u), 0)
-                end
-                length = length + (point - previous).Magnitude
-                points[#points + 1], previous = {Position = point, Distance = length}, point
-            end
-            shot.ShowPoints, shot.ShowLength, shot.ShowProgress, shot.ShowIndex = points, length, 0, 1
-            shot.Phase, shot.NativeAngular = "Show", ball.AssemblyAngularVelocity
-
-        end
-        shot.Deadline = mode == "Slow" and math.huge or os.clock() + (mode == "Extra" and 25 or 10)
+        if mode == "Extra" and not planExtraCourtShot(shot) then return false end
+        shot.Deadline = (mode == "Slow" or mode == "Extra") and math.huge or os.clock() + 10
         shot.Lock = {ball = ball, expires = shot.Deadline}
         guidedShot, perfectShotLock = shot, shot.Lock
         return true
@@ -1797,7 +1843,7 @@ end
         if not alive or ScriptUnloaded or guidedMode() ~= shot.Mode or shot.Epoch ~= psEpoch or not playing()
             or character ~= shot.Character or not humanoid or humanoid.Health <= 0 or LocalPlayer.Team ~= shot.Team
             or GetCurrentBall() ~= shot.Ball or not shot.Ball.Parent or shot.Ball.Anchored or targetHoop() ~= shot.Hoop
-            or not shot.Hoop.Parent or os.clock() > shot.Deadline or not ballOwned() then stopGuidedShot(); return end
+            or not shot.Hoop.Parent or shot.OwnHoop and not shot.OwnHoop.Parent or os.clock() > shot.Deadline or not ballOwned() then stopGuidedShot(); return end
         local controller = controllers.BallController
         local ok, holder = pcall(controller.GetPlayerPossessingBall, controller)
         if not ok or holder and (holder ~= LocalPlayer or shot.Released or os.clock() - shot.Started > 0.4) then stopGuidedShot(); return end
