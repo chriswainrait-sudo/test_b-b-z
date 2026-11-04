@@ -514,20 +514,10 @@ function GetCurrentBall(withPhysicsLock)
     return nil
 end
 
-local ballStateClient
 local function localPlayerHasBall()
-    if not ballStateClient then
-        local ok, result = pcall(function()
-            local controller = ReplicatedStorage:WaitForChild("Controllers"):WaitForChild("BallController")
-            return require(controller:WaitForChild("BallStateClient"))
-        end)
-        if ok then ballStateClient = result end
-    end
-    if ballStateClient and type(ballStateClient.localPlayerPossessesBall) == "function" then
-        local ok, result = pcall(ballStateClient.localPlayerPossessesBall, ballStateClient)
-        return ok and result == true
-    end
-    return false
+    local mobile = PlayerGui:FindFirstChild("Mobile")
+    local ball = mobile and mobile:FindFirstChild("Ball")
+    return ball ~= nil and ball:IsA("GuiObject") and ball.Visible == true
 end
 
 NoCooldownControllerInstance = nil
@@ -813,18 +803,36 @@ Tabs.EventsFarm:AddToggle("AutoPass", {
         end
         if not Value then return end
 
+        if type(firesignal) ~= "function" then
+            AutoPassEnabled = false
+            task.defer(function()
+                local option = NexusUI.Options.AutoPass
+                if option then option:SetValue(false) end
+                NexusUI:Notify({Title = "Auto Pass", Content = "This executor cannot activate the game pass button.", Duration = 5})
+            end)
+            return
+        end
         local lastCheck = 0
-        local lastPass = 0
+        local lastPass = -10
+        local attempted = false
+        local previousCharacter
+        local previousTeam
         AutoPassConnection = TrackScriptConnection(RunService.Heartbeat:Connect(function()
             local now = os.clock()
-            if not AutoPassEnabled or now - lastCheck < 0.08 or now - lastPass < 1.05 then return end
+            if not AutoPassEnabled or ScriptUnloaded or now - lastCheck < 0.1 then return end
             lastCheck = now
-            if not localPlayerHasBall() or not LocalPlayer.Team or LocalPlayer.Team.Name == "Visitor" then return end
-
             local character = LocalPlayer.Character
+            if character ~= previousCharacter or LocalPlayer.Team ~= previousTeam then
+                attempted = false
+                previousCharacter, previousTeam = character, LocalPlayer.Team
+            end
+            if not localPlayerHasBall() then attempted = false; return end
+            if attempted or now - lastPass < 1.25 or not LocalPlayer.Team or LocalPlayer.Team.Name == "Visitor" then return end
+
             local root = character and character:FindFirstChild("HumanoidRootPart")
             local camera = Workspace.CurrentCamera
-            if not root or not camera then return end
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            if not root or not camera or not humanoid or humanoid.Health <= 0 or camera.CameraType == Enum.CameraType.Scriptable then return end
 
             local threatened = false
             for _, player in ipairs(Players:GetPlayers()) do
@@ -869,7 +877,15 @@ Tabs.EventsFarm:AddToggle("AutoPass", {
             local mobile = PlayerGui:FindFirstChild("Mobile")
             local ball = mobile and mobile:FindFirstChild("Ball")
             local button = findGuiButton("Pass", ball and ball:FindFirstChild("Pass"))
-            if activateGuiButton(button) then lastPass = now end
+            if not button or not button:IsA("GuiButton") then return end
+            attempted, lastPass = true, now
+            local ok, failure = pcall(firesignal, button.MouseButton1Click)
+            if not ok then
+                AutoPassEnabled = false
+                local option = NexusUI.Options.AutoPass
+                if option then option:SetValue(false) end
+                NexusUI:Notify({Title = "Auto Pass", Content = tostring(failure), Duration = 5})
+            end
         end))
     end,
 })
