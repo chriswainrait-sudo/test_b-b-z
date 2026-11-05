@@ -150,7 +150,7 @@ local function createImageBackground(parent)
     artwork.Position = UDim2.fromScale(0.5, 0.5)
     artwork.Size = UDim2.fromScale(1, 1)
     artwork.BackgroundTransparency, artwork.BorderSizePixel = 1, 0
-    artwork.ImageTransparency = 0.91
+    artwork.ImageTransparency = 0.5
     artwork.ScaleType = Enum.ScaleType.Stretch
     artwork.Active, artwork.Selectable, artwork.ZIndex = false, false, 2
     artwork.Parent = parent
