@@ -5051,7 +5051,7 @@ function NexusUI:CreateWindow(options)
             switch.Parent = toggleFrame
 
             local switchCorner = Instance.new("UICorner")
-            switchCorner.CornerRadius = UDim.new(0, 0)
+            switchCorner.CornerRadius = UDim.new(0.5, 0)
             switchCorner.Parent = switch
 
             local switchStroke = Instance.new("UIStroke")
@@ -5085,7 +5085,7 @@ function NexusUI:CreateWindow(options)
             knob.Parent = switch
 
             local knobCorner = Instance.new("UICorner")
-            knobCorner.CornerRadius = UDim.new(0, 0)
+            knobCorner.CornerRadius = UDim.new(0.5, 0)
             knobCorner.Parent = knob
 
             local label = Instance.new("TextLabel")
