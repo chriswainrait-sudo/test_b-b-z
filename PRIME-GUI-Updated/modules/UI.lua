@@ -4183,6 +4183,18 @@ function NexusUI:CreateWindow(options)
         return conn
     end
 
+    local mobileRestoreFrame, mobileFoldTween
+    local compactSize = UDim2.fromOffset(174, 38)
+
+    local function compactPosition(position)
+        local bounds = restoreGui.AbsoluteSize
+        if bounds.X <= 0 or bounds.Y <= 0 then return position end
+        return UDim2.fromOffset(
+            math.clamp(position.X.Offset, 8, math.max(8, bounds.X - compactSize.X.Offset - 8)),
+            math.clamp(position.Y.Offset, 8, math.max(8, bounds.Y - compactSize.Y.Offset - 8))
+        )
+    end
+
     local function createRestoreGui()
         if not SHOW_RESTORE_BUTTON then
             return nil
@@ -4196,6 +4208,10 @@ function NexusUI:CreateWindow(options)
         restoreGui.Name = "NexusBasketballZeroUI_Restore"
         restoreGui.ResetOnSpawn = false
         restoreGui.IgnoreGuiInset = true
+        if IS_MOBILE then
+            restoreGui.IgnoreGuiInset = screenGui.IgnoreGuiInset
+            restoreGui.DisplayOrder = screenGui.DisplayOrder + 1
+        end
         restoreGui.Enabled = false
         restoreGui.Parent = GuiParent
 
@@ -4208,23 +4224,56 @@ function NexusUI:CreateWindow(options)
         restoreFrame.Parent = restoreGui
         restoreFrame.Active = true
 
-        local restoreButton = makeLogo(restoreFrame,48)
-        restoreButton.Name = "RestoreLogo"
+        local restoreButton
+        if IS_MOBILE then
+            mobileRestoreFrame = restoreFrame
+            restoreFrame.Name = "CompactWindow"
+            restoreFrame.Size = compactSize
+            restoreFrame.AnchorPoint = Vector2.zero
+            restoreFrame.Position = UDim2.fromOffset(16, 48)
+            restoreFrame.BackgroundTransparency = 0.08
+            restoreFrame.ClipsDescendants = true
+            NexusUI:BindColor(restoreFrame, "BackgroundColor3", function() return COLOR_WINDOW end)
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(0, 7)
+            corner.Parent = restoreFrame
+            local stroke = Instance.new("UIStroke")
+            stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            NexusUI:BindColor(stroke, "Color", function() return COLOR_BORDER end)
+            stroke.Parent = restoreFrame
+
+            restoreButton = Instance.new("TextButton")
+            restoreButton.Name = "ExpandWindow"
+            restoreButton.Size = UDim2.fromScale(1, 1)
+            restoreButton.BackgroundTransparency = 1
+            restoreButton.AutoButtonColor = false
+            restoreButton.Text = "L I Q U I D A T I O N    +"
+            restoreButton.Font = Enum.Font.GothamMedium
+            restoreButton.TextSize = 12
+            NexusUI:BindColor(restoreButton, "TextColor3", function() return COLOR_TEXT end)
+            restoreButton.Parent = restoreFrame
+        else
+            restoreButton = makeLogo(restoreFrame,48)
+            restoreButton.Name = "RestoreLogo"
+        end
         restoreButton.Active = true
         local restoreDragging = false
         local restoreDragMoved = false
         local restoreStartPos = nil
         local restoreStartInputPos = nil
         local restoreInputType = nil
+        local restoreTouch
         local restoreDragThreshold = 8
 
         local function beginRestoreInteraction(input)
+            if IS_MOBILE and (mobileFoldTween or restoreDragging) then return end
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 restoreDragging = true
                 restoreDragMoved = false
                 restoreStartPos = restoreFrame.Position
                 restoreStartInputPos = input.Position
                 restoreInputType = input.UserInputType
+                if IS_MOBILE and restoreInputType == Enum.UserInputType.Touch then restoreTouch = input end
             end
         end
 
@@ -4235,6 +4284,7 @@ function NexusUI:CreateWindow(options)
 
             local isMouseDrag = restoreInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseMovement
             local isTouchDrag = restoreInputType == Enum.UserInputType.Touch and input.UserInputType == Enum.UserInputType.Touch
+            if restoreTouch and input ~= restoreTouch then return end
             if not isMouseDrag and not isTouchDrag then
                 return
             end
@@ -4244,18 +4294,20 @@ function NexusUI:CreateWindow(options)
                 restoreDragMoved = true
             end
 
-            restoreFrame.Position = UDim2.new(
+            local position = UDim2.new(
                 restoreStartPos.X.Scale,
                 restoreStartPos.X.Offset + delta.X,
                 restoreStartPos.Y.Scale,
                 restoreStartPos.Y.Offset + delta.Y
             )
+            restoreFrame.Position = IS_MOBILE and compactPosition(position) or position
         end
 
         local function endRestoreInteraction(input)
             if not restoreDragging then
                 return
             end
+            if restoreTouch and input ~= restoreTouch then return end
             if input.UserInputType ~= restoreInputType then
                 return
             end
@@ -4266,6 +4318,7 @@ function NexusUI:CreateWindow(options)
             restoreStartPos = nil
             restoreStartInputPos = nil
             restoreInputType = nil
+            restoreTouch = nil
 
             if shouldOpen then
                 window:SetVisible(true)
@@ -4444,7 +4497,59 @@ function NexusUI:CreateWindow(options)
         return closeConfirmGui
     end
 
+    local function cancelMobileFold()
+        if not mobileFoldTween then return end
+        local tween = mobileFoldTween
+        mobileFoldTween = nil
+        tween:Cancel()
+    end
+
+    local function setMobileVisible(visible)
+        local wasVisible = mainFrame.Visible and screenGui.Enabled
+        if visible and wasVisible then return end
+        if not visible and not wasVisible and mobileFoldTween == nil then
+            createRestoreGui().Enabled = true
+            return
+        end
+
+        createRestoreGui().Enabled = true
+        local frame = mobileRestoreFrame
+        cancelMobileFold()
+        local fullPosition = mainFrame.Position
+        local fullSize = UDim2.fromOffset(mainFrame.Size.X.Offset * targetScale, mainFrame.Size.Y.Offset * targetScale)
+        local smallPosition = compactPosition(fullPosition)
+        if not visible and wasVisible then
+            frame.Position = fullPosition
+            frame.Size = fullSize
+            mainFrame.Visible = false
+        end
+
+        local tween = TweenService:Create(frame, TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+            Size = visible and fullSize or compactSize,
+            Position = visible and fullPosition or smallPosition,
+        })
+        mobileFoldTween = tween
+        tween.Completed:Once(function(state)
+            if mobileFoldTween ~= tween then return end
+            mobileFoldTween = nil
+            if state ~= Enum.PlaybackState.Completed or not mainFrame.Parent then return end
+            if visible then
+                screenGui.Enabled = true
+                mainFrame.Visible = true
+                restoreGui.Enabled = false
+                frame.Size = compactSize
+                frame.Position = smallPosition
+                animateWindowIn()
+            end
+        end)
+        tween:Play()
+    end
+
     setVisible = function(visible)
+        if IS_MOBILE then
+            setMobileVisible(visible)
+            return
+        end
         if visible then
             mainFrame.Visible = true
             animateWindowIn()
@@ -5741,6 +5846,10 @@ function NexusUI:CreateWindow(options)
     end
 
     function window:ToggleCollapsed()
+        if IS_MOBILE then
+            setVisible(not mainFrame.Visible)
+            return
+        end
         setCollapsed(not isCollapsed)
     end
 
@@ -5817,6 +5926,7 @@ function NexusUI:CreateWindow(options)
             return
         end
         windowDestroyed = true
+        cancelMobileFold()
 
         NexusUI:UnloadFeatures()
         destroyCloseConfirm()
