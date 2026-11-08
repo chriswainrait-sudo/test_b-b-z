@@ -55,6 +55,7 @@ end
 
 IS_MOBILE = IsMobileDevice()
 SHOW_RESTORE_BUTTON = IS_MOBILE or SHOW_LOGO_ON_PC
+local DESKTOP_WINDOW_SIZE = UDim2.fromOffset(675, 365)
 
 NexusUI = {
     Options = {},
@@ -3873,7 +3874,7 @@ function NexusUI:CreateWindow(options)
     local isVisibleByDefault = options == nil or options.visible ~= false
     local mainFrame = Instance.new("Frame")
     mainFrame.Name = "MainFrame"
-    local requestedSize = options and options.Size or UDim2.fromOffset(620, 370)
+    local requestedSize = IS_MOBILE and (options and options.Size or UDim2.fromOffset(620, 370)) or DESKTOP_WINDOW_SIZE
     local preferredSize = Vector2.new(requestedSize.X.Offset, requestedSize.Y.Offset)
     local userResized = false
     mainFrame.Size = requestedSize
@@ -3894,12 +3895,12 @@ function NexusUI:CreateWindow(options)
         local c = Workspace.CurrentCamera
         if not c then return end
         local v = c.ViewportSize
-        if v.X < 600 and not userResized then
+        if IS_MOBILE and v.X < 600 and not userResized then
             mainFrame.Size = UDim2.fromOffset(math.min(410, v.X - 24), math.min(540, v.Y - 64))
         else
             mainFrame.Size = UDim2.fromOffset(preferredSize.X, preferredSize.Y)
         end
-        targetScale = math.min(1, math.max(0.1, (v.X - 24) / mainFrame.Size.X.Offset), math.max(0.1, (v.Y - 64) / mainFrame.Size.Y.Offset))
+        targetScale = IS_MOBILE and math.min(1, math.max(0.1, (v.X - 24) / mainFrame.Size.X.Offset), math.max(0.1, (v.Y - 64) / mainFrame.Size.Y.Offset)) or 1
         fit.Scale = targetScale
         local pos = mainFrame.Position
         mainFrame.Position = UDim2.fromOffset(math.clamp(pos.X.Offset, 8, math.max(8, v.X - mainFrame.Size.X.Offset * fit.Scale - 8)), math.clamp(pos.Y.Offset, 8, math.max(8, v.Y - mainFrame.Size.Y.Offset * fit.Scale - 48)))
@@ -4681,51 +4682,53 @@ function NexusUI:CreateWindow(options)
         frames, sampleTime = 0, 0
     end))
 
-    local resizeHandle = Instance.new("TextButton")
-    resizeHandle.Name = "ResizeHandle"
-    resizeHandle.Size = UDim2.fromOffset(24, 24)
-    resizeHandle.Position = UDim2.new(1, -24, 1, -24)
-    resizeHandle.BackgroundTransparency = 1
-    resizeHandle.BorderSizePixel = 0
-    resizeHandle.Text = "◢"
-    NexusUI:BindColor(resizeHandle, "TextColor3", function() return ACCENT end)
-    resizeHandle.Font = Enum.Font.GothamBold
-    resizeHandle.TextSize = 15
-    resizeHandle.AutoButtonColor = false
-    resizeHandle.ZIndex = 20
-    resizeHandle.Parent = innerClip
+    if IS_MOBILE then
+        local resizeHandle = Instance.new("TextButton")
+        resizeHandle.Name = "ResizeHandle"
+        resizeHandle.Size = UDim2.fromOffset(24, 24)
+        resizeHandle.Position = UDim2.new(1, -24, 1, -24)
+        resizeHandle.BackgroundTransparency = 1
+        resizeHandle.BorderSizePixel = 0
+        resizeHandle.Text = "◢"
+        NexusUI:BindColor(resizeHandle, "TextColor3", function() return ACCENT end)
+        resizeHandle.Font = Enum.Font.GothamBold
+        resizeHandle.TextSize = 15
+        resizeHandle.AutoButtonColor = false
+        resizeHandle.ZIndex = 20
+        resizeHandle.Parent = innerClip
 
-    local resizing, resizeStart, resizeSize = false, nil, nil
-    track(resizeHandle.InputBegan:Connect(function(input)
-        if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
-        resizing = true
-        resizeStart = input.Position
-        resizeSize = mainFrame.AbsoluteSize / math.max(fit.Scale, 0.1)
-    end))
-    track(userInputService.InputChanged:Connect(function(input)
-        if not resizing or not resizeStart or not resizeSize then return end
-        if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
-        local camera = Workspace.CurrentCamera
-        if not camera then return end
-        local delta = (input.Position - resizeStart) / math.max(fit.Scale, 0.1)
-        local minWidth = IS_MOBILE and 320 or 430
-        local minHeight = 320
-        local maxWidth = math.max(minWidth, (camera.ViewportSize.X - mainFrame.AbsolutePosition.X - 8) / math.max(fit.Scale, 0.1))
-        local maxHeight = math.max(minHeight, (camera.ViewportSize.Y - mainFrame.AbsolutePosition.Y - 48) / math.max(fit.Scale, 0.1))
-        preferredSize = Vector2.new(
-            math.clamp(math.floor(resizeSize.X + delta.X + 0.5), minWidth, maxWidth),
-            math.clamp(math.floor(resizeSize.Y + delta.Y + 0.5), minHeight, maxHeight)
-        )
-        userResized = true
-        mainFrame.Size = UDim2.fromOffset(preferredSize.X, preferredSize.Y)
-    end))
-    track(userInputService.InputEnded:Connect(function(input)
-        if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
-        if resizing then
-            resizing = false
-            fitWindow()
-        end
-    end))
+        local resizing, resizeStart, resizeSize = false, nil, nil
+        track(resizeHandle.InputBegan:Connect(function(input)
+            if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
+            resizing = true
+            resizeStart = input.Position
+            resizeSize = mainFrame.AbsoluteSize / math.max(fit.Scale, 0.1)
+        end))
+        track(userInputService.InputChanged:Connect(function(input)
+            if not resizing or not resizeStart or not resizeSize then return end
+            if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
+            local camera = Workspace.CurrentCamera
+            if not camera then return end
+            local delta = (input.Position - resizeStart) / math.max(fit.Scale, 0.1)
+            local minWidth = IS_MOBILE and 320 or 430
+            local minHeight = 320
+            local maxWidth = math.max(minWidth, (camera.ViewportSize.X - mainFrame.AbsolutePosition.X - 8) / math.max(fit.Scale, 0.1))
+            local maxHeight = math.max(minHeight, (camera.ViewportSize.Y - mainFrame.AbsolutePosition.Y - 48) / math.max(fit.Scale, 0.1))
+            preferredSize = Vector2.new(
+                math.clamp(math.floor(resizeSize.X + delta.X + 0.5), minWidth, maxWidth),
+                math.clamp(math.floor(resizeSize.Y + delta.Y + 0.5), minHeight, maxHeight)
+            )
+            userResized = true
+            mainFrame.Size = UDim2.fromOffset(preferredSize.X, preferredSize.Y)
+        end))
+        track(userInputService.InputEnded:Connect(function(input)
+            if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
+            if resizing then
+                resizing = false
+                fitWindow()
+            end
+        end))
+    end
 
     local function createCornerButton(text, order)
         local btn = Instance.new("TextButton")
@@ -5862,6 +5865,7 @@ function NexusUI:CreateWindow(options)
     end
 
     function window:SetSize(width, height)
+        if not IS_MOBILE then return false end
         local camera = Workspace.CurrentCamera
         if not camera then return false end
         local minWidth = IS_MOBILE and 320 or 430
@@ -6019,7 +6023,7 @@ function NexusUI:Notify(options)
     end)
 end
 
-windowSize = IS_MOBILE and UDim2.fromOffset(620, 390) or UDim2.fromOffset(640, 350)
+windowSize = IS_MOBILE and UDim2.fromOffset(620, 390) or DESKTOP_WINDOW_SIZE
 
 Window = NexusUI:CreateWindow({
     Title = "",
