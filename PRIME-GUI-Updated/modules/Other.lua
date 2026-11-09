@@ -303,6 +303,149 @@ Tabs.Main:AddToggle("InfinitePumpFakes", {
 
 Tabs.Visuals:AddSection("Visuals")
 
+do
+    local selected = "Default"
+    local generation = 0
+    local presence, wrapper, previousOverride
+
+    local function restore()
+        if presence and rawget(presence, "Fire") == wrapper then
+            rawset(presence, "Fire", previousOverride)
+        end
+        presence, wrapper, previousOverride = nil, nil, nil
+    end
+
+    Tabs.Visuals:AddDropdown("PublicDeviceIcon", {
+        Title = "Device Icon",
+        Description = "Choose the device reported by the game's presence updates",
+        Values = {"Default", "PC", "Mobile", "Console"},
+        Default = "Default",
+        Callback = function(value)
+            selected = value or "Default"
+            generation += 1
+            local token = generation
+            if selected == "Default" or ScriptUnloaded then restore(); return end
+            if presence then return end
+
+            task.defer(function()
+                local ok, failure = pcall(function()
+                    local packages = ReplicatedStorage:FindFirstChild("Packages")
+                    local module = packages and packages:FindFirstChild("Knit")
+                    if not module then error("BBZ presence is unavailable") end
+                    local knit = require(module)
+                    if token ~= generation or ScriptUnloaded then return end
+                    local signal = knit.GetService("PlayerService").Presence
+                    if token ~= generation or ScriptUnloaded then return end
+                    if type(signal) ~= "table" or type(signal.Fire) ~= "function" then
+                        error("BBZ presence is unavailable")
+                    end
+
+                    local original = signal.Fire
+                    local saved = rawget(signal, "Fire")
+                    local function send(object, device, ...)
+                        if object == signal and selected ~= "Default"
+                            and (device == "PC" or device == "Mobile" or device == "Console") then
+                            device = selected
+                        end
+                        return original(object, device, ...)
+                    end
+                    rawset(signal, "Fire", send)
+                    presence, wrapper, previousOverride = signal, send, saved
+                end)
+                if not ok and token == generation and not ScriptUnloaded then
+                    NexusUI:Notify({Title = "Device Icon", Content = tostring(failure), Duration = 4})
+                end
+            end)
+        end,
+    })
+
+    RegisterUnloadCallback(function()
+        generation += 1
+        selected = "Default"
+        restore()
+    end)
+end
+
+do
+    local assets = ReplicatedStorage:FindFirstChild("Assets")
+    local shots = assets and assets:FindFirstChild("ShotEffects")
+    local effects = ReplicatedStorage:FindFirstChild("Effects")
+    local shotEffects = effects and effects:FindFirstChild("ShotEffects")
+    local client = shotEffects and shotEffects:FindFirstChild("Client")
+    if shots and client then
+        local names = {}
+        for _, asset in ipairs(shots:GetChildren()) do
+            if asset:FindFirstChild("Ball") then table.insert(names, asset.Name) end
+        end
+        table.sort(names)
+        table.insert(names, 1, "Default")
+
+        local generation = 0
+        local connection
+        local function stop()
+            generation += 1
+            if connection then connection:Disconnect(); connection = nil end
+        end
+
+        Tabs.Visuals:AddDropdown("LocalShotEffect", {
+            Title = "Shot Effect",
+            Description = "Show a selected locker effect on your shots",
+            Values = names,
+            Default = "Default",
+            Callback = function(value)
+                stop()
+                local asset = value ~= "Default" and value and shots:FindFirstChild(value)
+                if not asset or ScriptUnloaded then return end
+                local token = generation
+                task.spawn(function()
+                    local ok, failure = pcall(function()
+                        local module = client:FindFirstChild(asset.Name)
+                            or client:FindFirstChild(asset:GetAttribute("Ranked") and "RankedShotEffects" or "EmitEffects")
+                        local playEffect = require(module)
+                        local knit = require(ReplicatedStorage.Packages.Knit)
+                        if token ~= generation or ScriptUnloaded then return end
+                        local controller = knit.GetController("BallController")
+                        local context = knit.GetController("EffectController")
+                        local service = knit.GetService("BallService")
+                        local network = knit.GetController("Network")
+                        if token ~= generation or ScriptUnloaded then return end
+                        local lastBall, lastTime = nil, -math.huge
+                        connection = service.Throw:Connect(function(destination)
+                            if token ~= generation or ScriptUnloaded or typeof(destination) ~= "Vector3" then return end
+                            local character = LocalPlayer.Character
+                            local team = LocalPlayer.Team
+                            if not character or not character:FindFirstChild("Torso") or not team or team.Name == "Visitor" then return end
+                            task.defer(function()
+                                if token ~= generation or ScriptUnloaded or LocalPlayer.Character ~= character then return end
+                                local got, shooter = pcall(controller.GetLastCharacterToPossessBall, controller)
+                                if not got or shooter ~= character then return end
+                                local ball = GetCurrentBall()
+                                if not ball or not ball.Parent then return end
+                                local customization = network.Player and network.Player.Customization
+                                if customization and customization.Equipped
+                                    and customization.Equipped.ShotEffects == asset.Name then return end
+                                local now = os.clock()
+                                if ball == lastBall and now - lastTime < 0.25 then return end
+                                lastBall, lastTime = ball, now
+                                local played, err = pcall(playEffect, context, {
+                                    Locker = false, Vfx = asset, Char = character, Ball = ball,
+                                })
+                                if not played and token == generation then
+                                    NexusUI:Notify({Title = "Shot Effect", Content = tostring(err), Duration = 4})
+                                end
+                            end)
+                        end)
+                    end)
+                    if not ok and token == generation and not ScriptUnloaded then
+                        NexusUI:Notify({Title = "Shot Effect", Content = tostring(failure), Duration = 4})
+                    end
+                end)
+            end,
+        })
+        RegisterUnloadCallback(stop)
+    end
+end
+
 Tabs.Visuals:AddToggle("FOVChanger", {
     Title = "FOV Changer",
     Description = "Change field of view",
