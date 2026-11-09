@@ -327,10 +327,22 @@ do
         vertical = 0
         if flyVelocity then flyVelocity.VectorVelocity = Vector3.zero end
     end)
+    local lastInfiniteJump = -math.huge
+    local lastJumpRoot
     connect(Input.JumpRequest, function()
-        if config.InfiniteJump and not config.Fly and humanoid and humanoid.Health > 0 and not Input:GetFocusedTextBox() then
-            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-        end
+        if not config.InfiniteJump or config.Fly or not root or not humanoid
+            or humanoid.Health <= 0 or humanoid.Sit or Input:GetFocusedTextBox() then return end
+        local state = humanoid:GetState()
+        if state == Enum.HumanoidStateType.Swimming or state == Enum.HumanoidStateType.Climbing
+            or state == Enum.HumanoidStateType.Ragdoll or state == Enum.HumanoidStateType.Physics then return end
+        local now = os.clock()
+        if root == lastJumpRoot and now - lastInfiniteJump < 0.1 then return end
+        lastJumpRoot, lastInfiniteJump = root, now
+        local velocity = root.AssemblyLinearVelocity
+        local height = config.Jump and config.JumpHeight or 7.2
+        local launch = math.sqrt(2 * workspace.Gravity * height)
+        humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        root.AssemblyLinearVelocity = Vector3.new(velocity.X, math.max(velocity.Y, launch), velocity.Z)
     end)
 
     local function ballPart()
@@ -616,7 +628,7 @@ do
     csSlider("CS_WalkSpeed", "WalkSpeed", Tabs.Movement, "Walk Speed", "Walk speed value", 4, 100, 1, 1)
     csToggle("CS_Jump", "Jump", Tabs.Movement, "Jump", "Increases jump power")
     csSlider("CS_JumpHeight", "JumpHeight", Tabs.Movement, "Jump Height", "Jump height in studs", 2, 40, 1, 1)
-    csToggle("CS_InfiniteJump", "InfiniteJump", Tabs.Movement, "Infinite Jump", "Jump while in the air")
+    csToggle("CS_InfiniteJump", "InfiniteJump", Tabs.EventsFarm, "Infinite Jump", "Jump again without waiting to land")
     csToggle("CS_Fly", "Fly", Tabs.Movement, "Fly", "Mobile: joystick + UP / DOWN. PC: WASD + Space / Ctrl")
     csSlider("CS_FlySpeed", "FlySpeed", Tabs.Movement, "Fly Speed", "Fly speed value", 5, 120, 1, 1)
     csToggle("CS_Noclip", "Noclip", Tabs.Movement, "Noclip", "Walk through obstacles")
@@ -1092,6 +1104,559 @@ do
         Callback = start
     })
     RegisterUnloadCallback(stop)
+end
+
+do
+    local variants = {["Normal Shot"] = "ShootF", ["Fadeaway"] = "ShootB"}
+    local fakeId = "116636356590637"
+    local mode = "Default"
+    local generation = 0
+    local played, stopped, characterAdded, characterRemoving
+    local tracks = {}
+    local overlay
+
+    local function stopOverlay()
+        if stopped then stopped:Disconnect(); stopped = nil end
+        if overlay then overlay:Stop(0.06); overlay = nil end
+    end
+
+    local function clearAnimator()
+        generation += 1
+        if played then played:Disconnect(); played = nil end
+        stopOverlay()
+        for _, track in pairs(tracks) do track:Destroy() end
+        table.clear(tracks)
+    end
+
+    local function bindAnimator(character)
+        clearAnimator()
+        if not character or mode == "Default" or ScriptUnloaded then return end
+        local token = generation
+        task.spawn(function()
+            local humanoid = character:WaitForChild("Humanoid", 8)
+            local animator = humanoid and humanoid:WaitForChild("Animator", 8)
+            if not animator or token ~= generation or LocalPlayer.Character ~= character then return end
+            local assets = ReplicatedStorage:FindFirstChild("Assets")
+            local animations = assets and assets:FindFirstChild("Animations")
+            local shots = animations and animations:FindFirstChild("Shots")
+            if not shots then return end
+
+            for _, name in pairs(variants) do
+                local animation = shots:FindFirstChild(name)
+                if animation and animation:IsA("Animation") then
+                    local ok, track = pcall(animator.LoadAnimation, animator, animation)
+                    if token ~= generation then
+                        if ok then track:Destroy() end
+                        return
+                    end
+                    if ok then
+                        track.Priority = Enum.AnimationPriority.Action3
+                        track.Looped = false
+                        tracks[name] = track
+                    end
+                end
+            end
+
+            played = animator.AnimationPlayed:Connect(function(track)
+                if track == overlay or token ~= generation then return end
+                local animation = track.Animation
+                local id = animation and animation.AnimationId:match("%d+")
+                if id ~= fakeId then
+                    local priority = track.Priority
+                    if priority ~= Enum.AnimationPriority.Core and priority.Value >= Enum.AnimationPriority.Action2.Value then
+                        stopOverlay()
+                    end
+                    return
+                end
+
+                task.defer(function()
+                    if token ~= generation or not track.IsPlaying then return end
+                    local replacement = tracks[variants[mode]]
+                    if not replacement then return end
+                    stopOverlay()
+                    overlay = replacement
+                    replacement:Play(0.04)
+                    if replacement.Length > 0 then
+                        replacement.TimePosition = math.min(track.TimePosition, math.max(0, replacement.Length - 0.05))
+                    end
+                    stopped = track.Stopped:Connect(stopOverlay)
+                end)
+            end)
+        end)
+    end
+
+    Tabs.EventsFarm:AddDropdown("PumpFakeAnimation", {
+        Title = "Pump Fake Animation",
+        Values = {"Default", "Normal Shot", "Fadeaway"},
+        Default = "Default",
+        Callback = function(value)
+            mode = value or "Default"
+            bindAnimator(LocalPlayer.Character)
+        end,
+    })
+    characterAdded = LocalPlayer.CharacterAdded:Connect(bindAnimator)
+    characterRemoving = LocalPlayer.CharacterRemoving:Connect(clearAnimator)
+    RegisterUnloadCallback(function()
+        mode = "Default"
+        characterAdded:Disconnect()
+        characterRemoving:Disconnect()
+        clearAnimator()
+    end)
+end
+
+do
+    local delayMs = 60
+    local generation = 0
+    local connection
+
+    local function stop()
+        generation += 1
+        if connection then connection:Disconnect(); connection = nil end
+    end
+
+    local function start()
+        stop()
+        local token = generation
+        task.spawn(function()
+            local ok, ball, ability, network, moves, jackpot = pcall(function()
+                local knit = require(ReplicatedStorage.Packages.Knit)
+                local abilities = ReplicatedStorage.Controllers.AbilityController.Abilities
+                return knit.GetController("BallController"), knit.GetController("AbilityController"),
+                    knit.GetController("Network"), require(abilities), abilities.Jackpot.JackpotSteal
+            end)
+            if not ok or token ~= generation or ScriptUnloaded then return end
+
+            local function getCandidate()
+                local team = LocalPlayer.Team
+                if not team or (team.Name ~= "Home" and team.Name ~= "Away") then return end
+                local values = ReplicatedStorage:FindFirstChild("GameValues")
+                local state = values and values:FindFirstChild("State")
+                local tipOff = values and values:FindFirstChild("TipOff")
+                if not state or state.Value ~= "Playing" or (tipOff and tipOff.Value) then return end
+
+                local style = LocalPlayer:FindFirstChild("Style")
+                local equipped = style and moves[style.Value]
+                if not equipped then return end
+                local slot
+                for index = 1, 3 do
+                    local effective = index == 1 and network.CharValues.InAwakening and equipped[4] and 4 or index
+                    local move = equipped[effective]
+                    local cooldown = ability.CDS and ability.CDS[effective]
+                    if move and move.Ability == jackpot and not move.Holdable
+                        and type(cooldown) == "number" and cooldown <= tick() then
+                        slot = index
+                        break
+                    end
+                end
+                if not slot then return end
+
+                local opponent = ball:GetPlayerPossessingBall()
+                if not opponent or opponent.Team == team or not opponent.Team
+                    or opponent.Team.Name == "Visitor" then return end
+                local character, enemy = LocalPlayer.Character, opponent.Character
+                local root = character and character:FindFirstChild("HumanoidRootPart")
+                local enemyRoot = enemy and enemy:FindFirstChild("HumanoidRootPart")
+                if not root or not enemyRoot then return end
+                local hoops = workspace:FindFirstChild("Hoops")
+                local home = hoops and hoops:FindFirstChild("Home")
+                local away = hoops and hoops:FindFirstChild("Away")
+                local homeHoop = home and home:FindFirstChild("Hoop")
+                local awayHoop = away and away:FindFirstChild("Hoop")
+                if not homeHoop or not awayHoop then return end
+                local axis = awayHoop.Position - homeHoop.Position
+                axis = Vector3.new(axis.X, 0, axis.Z)
+                if axis.Magnitude < 1 then return end
+                local side = (enemyRoot.Position - (homeHoop.Position + awayHoop.Position) / 2):Dot(axis)
+                if (team.Name == "Home" and side >= 0) or (team.Name == "Away" and side <= 0) then return end
+                local position = ball:GetServerBallPosition()
+                if typeof(position) ~= "Vector3" or (position - root.Position).Magnitude > 38 then return end
+                return opponent, slot
+            end
+
+            local carrier, queuedSlot, enteredAt, busy
+            local lastCheck, lastAttempt = -math.huge, -math.huge
+            connection = RunService.Heartbeat:Connect(function()
+                local now = os.clock()
+                if busy or now - lastCheck < 0.016 then return end
+                lastCheck = now
+                local valid, opponent, slot = pcall(getCandidate)
+                if token ~= generation or ScriptUnloaded then return end
+                if not valid or not opponent then carrier, queuedSlot, enteredAt = nil, nil, nil; return end
+                if carrier ~= opponent or queuedSlot ~= slot then
+                    carrier, queuedSlot, enteredAt = opponent, slot, now
+                end
+                if now - enteredAt < delayMs / 1000 or now - lastAttempt < 0.75 then return end
+
+                local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+                local hud = playerGui and playerGui:FindFirstChild("InGame")
+                local bg = hud and hud:FindFirstChild("BG")
+                local bottom = bg and bg:FindFirstChild("Bottom")
+                local button = bottom and bottom:FindFirstChild("Ability" .. slot)
+                if not button or not button:IsA("GuiButton") then return end
+
+                lastAttempt, busy = now, true
+                local signal = button.MouseButton1Click
+                local fired = false
+                if type(getconnections) == "function" then
+                    local found, connections = pcall(getconnections, signal)
+                    if found and type(connections) == "table" then
+                        for _, handler in ipairs(connections) do
+                            if token ~= generation then break end
+                            local called = pcall(function()
+                                if handler.Enabled == false or type(handler.Function) ~= "function" then error("inactive") end
+                                handler.Function()
+                            end)
+                            fired = fired or called
+                        end
+                    end
+                end
+                if not fired and token == generation and type(firesignal) == "function" then pcall(firesignal, signal) end
+                busy = false
+            end)
+        end)
+    end
+
+    Tabs.EventsFarm:AddToggle("NewJackpotSteal", {
+        Title = "Jackpot Steal",
+        Default = false,
+        Callback = function(value)
+            if value and not ScriptUnloaded then start() else stop() end
+        end,
+    })
+    Tabs.EventsFarm:AddSlider("NewJackpotStealDelay", {
+        Title = "Jackpot Steal Delay (ms)",
+        Default = 60, Min = 0, Max = 500, Rounding = 0,
+        Callback = function(value) delayMs = value end,
+    })
+    RegisterUnloadCallback(stop)
+end
+
+do
+    local jumpScale, travelScale = 1, 1
+    local generation = 0
+    local played, simulation
+    local applied = {}
+    local jump, dribble
+    local jumpMoves = {
+        Sniper = {"Ability1"},
+        Dealer = {"HighStakes"},
+        LazyWorker = {"Ability2Left", "Ability2Right"},
+        Silver = {"EarthshakerJump", "PushFade"},
+    }
+    local travelMoves = {
+        Silver = {"DribblePush"},
+        ScaryMonster = {"BulletPressure", "TimeSkipCrossover"},
+    }
+
+    local function restore()
+        for mover, change in pairs(applied) do
+            if mover.Parent and mover[change.Property] == change.Applied then
+                mover[change.Property] = change.Base
+            end
+        end
+        table.clear(applied)
+    end
+
+    local function stop()
+        generation += 1
+        if played then played:Disconnect(); played = nil end
+        if simulation then simulation:Disconnect(); simulation = nil end
+        jump, dribble = nil, nil
+        restore()
+    end
+
+    local function bind(character)
+        stop()
+        if not character or ScriptUnloaded or (jumpScale == 1 and travelScale == 1) then return end
+        local token = generation
+        task.spawn(function()
+            local humanoid = character:WaitForChild("Humanoid", 8)
+            local animator = humanoid and humanoid:WaitForChild("Animator", 8)
+            local root = character:FindFirstChild("HumanoidRootPart")
+            if not animator or not root or token ~= generation or LocalPlayer.Character ~= character then return end
+            local assets = ReplicatedStorage:FindFirstChild("Assets")
+            local styles = assets and assets:FindFirstChild("StyleAnimations")
+            local animations = assets and assets:FindFirstChild("Animations")
+            if not styles or not animations then return end
+            local jumpIds, travelIds = {}, {}
+
+            local function addAnimation(target, animation)
+                if animation and animation:IsA("Animation") then
+                    local id = animation.AnimationId:match("%d+")
+                    if id then target[id] = true end
+                end
+            end
+
+            local function registerMoves(target, entries)
+                for style, names in pairs(entries) do
+                    local folder = styles:FindFirstChild(style)
+                    if folder then
+                        for _, name in ipairs(names) do addAnimation(target, folder:FindFirstChild(name)) end
+                    end
+                end
+            end
+
+            registerMoves(jumpIds, jumpMoves)
+            registerMoves(travelIds, travelMoves)
+            for _, folder in ipairs(animations:GetChildren()) do
+                if folder.Name == "Dribbles" or folder.Name:match("Combo$") then
+                    for _, animation in ipairs(folder:GetChildren()) do addAnimation(travelIds, animation) end
+                end
+            end
+
+            played = animator.AnimationPlayed:Connect(function(track)
+                if token ~= generation or ScriptUnloaded then return end
+                local values = ReplicatedStorage:FindFirstChild("GameValues")
+                local state = values and values:FindFirstChild("State")
+                if not state or state.Value ~= "Playing" or humanoid.Health <= 0 then return end
+                local animation = track.Animation
+                local id = animation and animation.AnimationId:match("%d+")
+                if not id then return end
+                local now = os.clock()
+                if jumpScale > 1 and jumpIds[id] then jump = {Track = track, At = now} end
+                if travelScale > 1 and travelIds[id] then
+                    restore()
+                    dribble = {Track = track, At = now}
+                end
+            end)
+
+            simulation = RunService.PreSimulation:Connect(function()
+                if token ~= generation then return end
+                if ScriptUnloaded or humanoid.Health <= 0 then stop(); return end
+                local now = os.clock()
+                if jump then
+                    local elapsed = now - jump.At
+                    if not jump.Track.IsPlaying or elapsed > 0.3 then
+                        jump = nil
+                    elseif elapsed >= 0.02 then
+                        local velocity = root.AssemblyLinearVelocity
+                        if velocity.Y > 4 or elapsed >= 0.10 then
+                            local base = math.max(velocity.Y, 0)
+                            local boost = base > 4 and base * (math.sqrt(jumpScale) - 1)
+                                or 40 * (math.sqrt(jumpScale) - 1)
+                            root:ApplyImpulse(Vector3.new(0, root.AssemblyMass * boost, 0))
+                            jump = nil
+                        end
+                    end
+                end
+
+                if not dribble then return end
+                if not dribble.Track.IsPlaying or now - dribble.At > 1.2 then
+                    dribble = nil
+                    restore()
+                    return
+                end
+                for _, mover in ipairs(root:GetChildren()) do
+                    local property
+                    if mover:IsA("LinearVelocity") and mover.RelativeTo == Enum.ActuatorRelativeTo.World
+                        and mover.VelocityConstraintMode == Enum.VelocityConstraintMode.Vector then
+                        property = "VectorVelocity"
+                    elseif mover:IsA("BodyVelocity") then
+                        property = "Velocity"
+                    end
+                    if property then
+                        local value = mover[property]
+                        local prior = applied[mover]
+                        local base = prior and value == prior.Applied and prior.Base or value
+                        if math.abs(base.X) + math.abs(base.Z) > 1 then
+                            local scaled = Vector3.new(base.X * travelScale, base.Y, base.Z * travelScale)
+                            mover[property] = scaled
+                            applied[mover] = {Property = property, Base = base, Applied = mover[property]}
+                        end
+                    end
+                end
+            end)
+        end)
+    end
+
+    Tabs.EventsFarm:AddSection("Style Tuning")
+    Tabs.EventsFarm:AddSlider("NewStyleJumpHeight", {
+        Title = "Ability Jump Height (%)", Default = 100, Min = 100, Max = 250, Rounding = 0,
+        Callback = function(value)
+            jumpScale = value / 100
+            bind(LocalPlayer.Character)
+        end,
+    })
+    Tabs.EventsFarm:AddSlider("NewDribbleTravel", {
+        Title = "Dribble Travel (%)", Default = 100, Min = 100, Max = 160, Rounding = 0,
+        Callback = function(value)
+            travelScale = value / 100
+            bind(LocalPlayer.Character)
+        end,
+    })
+    local added = LocalPlayer.CharacterAdded:Connect(bind)
+    local removing = LocalPlayer.CharacterRemoving:Connect(stop)
+    RegisterUnloadCallback(function()
+        added:Disconnect()
+        removing:Disconnect()
+        stop()
+    end)
+end
+
+do
+    local durations = {}
+    local moves = {
+        {"DealerDash", "Dealer False Deal Extension", 350},
+        {"LazyDash", "Lazy Worker Ability 2 Extension", 350},
+        {"SilverDash", "Silver Dribble Push Extension", 350},
+        {"SilverAir", "Silver Jump Hang Time", 300},
+        {"SniperAir", "Sniper Perfect Arc Hang Time", 300},
+        {"SniperDash", "Sniper Quick Release Extension", 250},
+    }
+    local ids = {}
+    local function register(key, folder, name)
+        local asset = folder and folder:FindFirstChild(name)
+        local id = asset and asset:IsA("Animation") and asset.AnimationId:match("%d+")
+        if id then ids[id] = key end
+    end
+
+    local assets = ReplicatedStorage:FindFirstChild("Assets")
+    local styles = assets and assets:FindFirstChild("StyleAnimations")
+    local animations = assets and assets:FindFirstChild("Animations")
+    if styles and animations then
+        register("DealerDash", styles:FindFirstChild("Dealer"), "FalseDeal")
+        register("LazyDash", styles:FindFirstChild("LazyWorker"), "Ability2")
+        register("SilverDash", styles:FindFirstChild("Silver"), "DribblePush")
+        register("SilverAir", styles:FindFirstChild("Silver"), "EarthshakerJump")
+        register("SilverAir", styles:FindFirstChild("Silver"), "PushFade")
+        register("SilverBlock", animations:FindFirstChild("Blocks"), "JumpBlock2")
+        register("SniperAir", styles:FindFirstChild("Sniper"), "Ability1")
+    end
+
+    local animationConnection, stepConnection
+    local motion, hang
+    local function stop()
+        if animationConnection then animationConnection:Disconnect(); animationConnection = nil end
+        if stepConnection then stepConnection:Disconnect(); stepConnection = nil end
+        motion, hang = nil, nil
+    end
+
+    local generation = 0
+    local function refresh(character)
+        generation += 1
+        stop()
+        if not character or ScriptUnloaded or not next(durations) then return end
+        local token = generation
+        task.spawn(function()
+            local humanoid = character:WaitForChild("Humanoid", 8)
+            local animator = humanoid and humanoid:WaitForChild("Animator", 8)
+            local root = character:FindFirstChild("HumanoidRootPart")
+            if not animator or not root or token ~= generation or LocalPlayer.Character ~= character then return end
+
+            local function style()
+                local value = LocalPlayer:FindFirstChild("Style")
+                return value and value.Value
+            end
+            local function playing()
+                local values = ReplicatedStorage:FindFirstChild("GameValues")
+                local state = values and values:FindFirstChild("State")
+                return state and state.Value == "Playing" and humanoid.Health > 0
+                    and not humanoid.Sit and not root.Anchored and character.Parent
+                    and not character:GetAttribute("Stunned")
+            end
+            animationConnection = animator.AnimationPlayed:Connect(function(track)
+                if token ~= generation or not playing() then return end
+                local animation = track.Animation
+                local key = animation and ids[animation.AnimationId:match("%d+")]
+                if key == "SilverBlock" then
+                    key = style() == "Silver" and track.Priority == Enum.AnimationPriority.Action3 and "SilverAir" or nil
+                end
+                if not key or not durations[key] then return end
+                if key == "SilverAir" or key == "SniperAir" then
+                    hang = {Key = key, Track = track, Until = os.clock() + 1.4}
+                elseif not motion or motion.Key ~= key then
+                    motion = {Key = key, Until = os.clock() + 1.5}
+                end
+            end)
+
+            stepConnection = RunService.PreSimulation:Connect(function()
+                if token ~= generation or ScriptUnloaded or not playing() then motion, hang = nil, nil; return end
+                local now = os.clock()
+                local velocity = root.AssemblyLinearVelocity
+                local mover = root:FindFirstChildWhichIsA("LinearVelocity")
+                local styleName = style()
+                if not motion and mover then
+                    local vector = mover.VectorVelocity
+                    local force = mover.MaxAxesForce
+                    if durations.SniperDash and styleName == "Sniper"
+                        and mover.ForceLimitMode == Enum.ForceLimitMode.PerAxis
+                        and force.X >= 2e9 and force.Y >= 2e9 and force.Z >= 2e9
+                        and math.abs(vector.Magnitude - 50) < 1 then
+                        motion = {Key = "SniperDash", Until = now + 1.8}
+                    elseif durations.DealerDash and styleName == "Dealer" and mover.MaxForce == math.huge
+                        and vector:Dot(root.CFrame.LookVector) < -12 and math.abs(vector.Y) < 0.1
+                        and math.abs(vector:Dot(root.CFrame.RightVector)) < 0.1 then
+                        motion = {Key = "DealerDash", Until = now + 0.8}
+                    end
+                end
+
+                if motion then
+                    local duration = durations[motion.Key]
+                    if not duration or now > motion.Until then
+                        motion = nil
+                    elseif not motion.Mover then
+                        if mover then motion.Mover = mover end
+                    elseif motion.Mover.Parent == root then
+                        local vector = motion.Mover.VectorVelocity
+                        local horizontal = Vector3.new(vector.X, 0, vector.Z)
+                        if horizontal.Magnitude >= 8 then motion.Last = horizontal end
+                    elseif mover or not motion.Last then
+                        motion = nil
+                    else
+                        motion.Start = motion.Start or now
+                        local fraction = (now - motion.Start) / duration
+                        if fraction >= 1 then
+                            motion = nil
+                        else
+                            local extra = motion.Last.Unit * math.min(motion.Last.Magnitude, 25) * (1 - fraction)
+                            root.AssemblyLinearVelocity = Vector3.new(extra.X, velocity.Y, extra.Z)
+                        end
+                    end
+                end
+
+                if hang then
+                    local duration = durations[hang.Key]
+                    if not duration or now > hang.Until
+                        or (hang.Key == "SniperAir" and hang.Track.Speed >= 2.37 and not hang.Rising) then
+                        hang = nil
+                    elseif velocity.Y > 5 and humanoid.FloorMaterial == Enum.Material.Air then
+                        hang.Rising = true
+                    elseif hang.Rising and humanoid.FloorMaterial == Enum.Material.Air and velocity.Y <= 0 then
+                        hang.Start = hang.Start or now
+                        if now - hang.Start >= duration then
+                            hang = nil
+                        elseif velocity.Y < -3 then
+                            local current = root.AssemblyLinearVelocity
+                            root.AssemblyLinearVelocity = Vector3.new(current.X, -3, current.Z)
+                        end
+                    end
+                end
+            end)
+        end)
+    end
+
+    Tabs.EventsFarm:AddSection("Test Functions")
+    for _, entry in ipairs(moves) do
+        local key, title, maximum = entry[1], entry[2], entry[3]
+        Tabs.EventsFarm:AddSlider("Test" .. key, {
+            Title = title .. " (ms)", Default = 0, Min = 0, Max = maximum, Rounding = 0,
+            Callback = function(value)
+                durations[key] = value > 0 and value / 1000 or nil
+                refresh(LocalPlayer.Character)
+            end,
+        })
+    end
+    local added = LocalPlayer.CharacterAdded:Connect(refresh)
+    local removing = LocalPlayer.CharacterRemoving:Connect(function()
+        generation += 1
+        stop()
+    end)
+    RegisterUnloadCallback(function()
+        generation += 1
+        added:Disconnect()
+        removing:Disconnect()
+        stop()
+    end)
 end
 
 end}
