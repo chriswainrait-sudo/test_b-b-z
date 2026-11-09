@@ -6051,6 +6051,9 @@ Tabs = {
     Other = Window:AddTab({ Title = "Other"})
 }
 
+if IS_PREMIUM_USER == true then
+    Tabs.Premium = Window:AddTab({Title = "Premium"})
+end
 Tabs.Settings = Window:AddTab({ Title = "Settings"})
 NexusUI:SetTheme("Noir")
 
