@@ -522,11 +522,14 @@ end
 
 do
     local active
+    local radius = 17
     local function stop()
         local run = active
         active = nil
         if not run then return end
-        run.Heartbeat:Disconnect()
+        if run.Heartbeat then run.Heartbeat:Disconnect() end
+        if run.StealSignal then run.StealSignal:Disconnect() end
+        if run.Radius then run.Radius:Destroy() end
         for _, connection in pairs(run.Animators) do
             connection:Disconnect()
         end
@@ -552,6 +555,14 @@ do
         stop()
         local run = {Animators = {}, Seen = setmetatable({}, {__mode = "k"}), LastAttempt = -math.huge}
         active = run
+        local lastLog = {}
+        local function log(key, message)
+            local now = os.clock()
+            if now - (lastLog[key] or -math.huge) < 0.75 then return end
+            lastLog[key] = now
+            print("[AutoDribble] " .. message)
+        end
+        log("start", "Enabled, radius " .. radius .. " studs")
         local stealIds = {}
         for _, id in ipairs({
             "106268822474526", "132607768946898", "106903161138795", "131574882743115",
@@ -588,33 +599,59 @@ do
                         fired = fired or success
                     end
                 end
-                if fired then return true end
+                if fired then return true, "connections" end
             end
-            return type(firesignal) == "function" and pcall(firesignal, signal) or false
+            if type(firesignal) == "function" then
+                local ok, err = pcall(firesignal, signal)
+                return ok, ok and "firesignal" or tostring(err)
+            end
+            return false, "no callable click connections"
         end
 
-        local function react(player, character, track)
-            if active ~= run or ScriptUnloaded or run.Busy or run.Seen[track]
+        local function react(player, character, track, source)
+            if active ~= run or ScriptUnloaded or run.Busy or (track and run.Seen[track])
                 or not isOpponent(player) or player.Character ~= character then return end
-            local animation = track.Animation
-            if track.TimePosition > 0.55 then return end
-            local id = animation and animation.AnimationId:match("%d+")
-            if not (id and stealIds[id]) and not (animation and isStealName(animation.Name))
-                and not isStealName(track.Name) then return end
             local myCharacter = LocalPlayer.Character
             local root = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
             local enemyRoot = character:FindFirstChild("HumanoidRootPart")
             local humanoid = myCharacter and myCharacter:FindFirstChildOfClass("Humanoid")
-            if not root or not enemyRoot or not humanoid or humanoid.Health <= 0
-                or (root.Position - enemyRoot.Position).Magnitude > 17 then return end
+            if not root or not enemyRoot or not humanoid or humanoid.Health <= 0 then return end
+            local distance = (root.Position - enemyRoot.Position).Magnitude
+            local detail = source
+            if track then
+                local animation = track.Animation
+                local id = animation and animation.AnimationId:match("%d+")
+                local name = animation and animation.Name or track.Name
+                if not (id and stealIds[id]) and not isStealName(name) and not isStealName(track.Name) then
+                    if source == "AnimationPlayed" and distance <= radius
+                        and track.Priority.Value >= Enum.AnimationPriority.Action2.Value then
+                        log("unknown:" .. player.Name, ("Nearby unrecognized action: %s id=%s enemy=%s"):format(name, id or "?", player.Name))
+                    end
+                    return
+                end
+                detail = ("%s %s id=%s position=%.3fs"):format(source, name, id or "?", track.TimePosition)
+                if source ~= "AnimationPlayed" and track.TimePosition > 0.55 then
+                    log("late", "Ignored late animation: " .. detail)
+                    return
+                end
+            end
+            if distance > radius then
+                if source ~= "Heartbeat" then log("range", ("Out of range: %s %.1f studs (%s)"):format(player.Name, distance, detail)) end
+                return
+            end
             local now = os.clock()
-            if now - run.LastAttempt < 0.2 or userInputService:GetFocusedTextBox() then return end
+            if now - run.LastAttempt < 0.2 then return end
+            if userInputService:GetFocusedTextBox() then log("typing", "Skipped: text box focused"); return end
             local gameValues = ReplicatedStorage:FindFirstChild("GameValues")
             local state = gameValues and gameValues:FindFirstChild("State")
-            if not state or state.Value ~= "Playing" then return end
+            if not state or state.Value ~= "Playing" then
+                log("state", "Skipped: game state=" .. tostring(state and state.Value))
+                return
+            end
+            log("detected:" .. player.Name, ("Detected %s at %.1f studs via %s"):format(player.Name, distance, detail))
 
             local mobile = PlayerGui:FindFirstChild("Mobile")
-            if not mobile then return end
+            if not mobile then log("button", "Missing PlayerGui.Mobile"); return end
             local panel = mobile:FindFirstChild("Ball")
             local button = panel and panel:FindFirstChild("Dribble")
             if not button or not button:IsA("ImageButton") then
@@ -628,16 +665,60 @@ do
                     end
                 end
             end
-            if not button or not button:IsDescendantOf(mobile) then return end
+            if not button or not button:IsDescendantOf(mobile) then log("button", "Missing Dribble ImageButton"); return end
             run.Button = button
 
-            run.Seen[track] = true
+            if track then run.Seen[track] = true end
             run.LastAttempt = now
+            local controller = run.Controller
+            local previous = controller and controller.DribbleDB
+            local owner
+            if controller and type(controller.GetPlayerPossessingBall) == "function" then
+                local readOk, holder = pcall(controller.GetPlayerPossessingBall, controller)
+                if readOk then owner = holder and tostring(holder) or "none" end
+            end
             run.Busy = true
-            local ok, fired = pcall(clickDribble, button)
+            local ok, fired, method = pcall(clickDribble, button)
             run.Busy = false
-            if not ok or not fired then run.Seen[track] = nil end
+            if not ok or not fired then
+                if track then run.Seen[track] = nil end
+                log("clickError", "Click failed: " .. tostring(ok and method or fired))
+                return
+            end
+            log("click", ("Click dispatched via %s, holder=%s, cooldown=%.2fs"):format(
+                method, owner or "unknown", type(previous) == "number" and math.max(0, previous - tick()) or -1))
+            if type(previous) == "number" then
+                task.delay(0.1, function()
+                    if active ~= run then return end
+                    if controller.DribbleDB ~= previous then
+                        log("accepted", "Dribble cooldown changed after click")
+                    else
+                        log("noDribble", "Click dispatched but Dribble cooldown did not change")
+                    end
+                end)
+            end
         end
+
+        task.defer(function()
+            local ok, err = pcall(function()
+                local packages = ReplicatedStorage:FindFirstChild("Packages")
+                local module = packages and packages:FindFirstChild("Knit")
+                if not module then error("Knit not found") end
+                local knit = require(module)
+                if active ~= run then return end
+                local service = knit.GetService("BallService")
+                if active ~= run then return end
+                run.StealSignal = service.Steal:Connect(function(character)
+                    if active ~= run or typeof(character) ~= "Instance" or not character:IsA("Model") then return end
+                    local player = Players:GetPlayerFromCharacter(character)
+                    if player then react(player, character, nil, "BallService.Steal") end
+                end)
+                log("signal", "Listening to BBZ steal movement signal")
+                local controller = knit.GetController("BallController")
+                if active == run then run.Controller = controller end
+            end)
+            if not ok and active == run then log("signalError", "Knit diagnostics unavailable: " .. tostring(err)) end
+        end)
 
         run.Heartbeat = RunService.Heartbeat:Connect(function()
             if active ~= run then return end
@@ -646,6 +727,22 @@ do
             local current = {}
             local myCharacter = LocalPlayer.Character
             local root = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
+            if root ~= run.RadiusRoot then
+                if run.Radius then run.Radius:Destroy(); run.Radius = nil end
+                run.RadiusRoot = root
+                if root then
+                    local ring = Instance.new("CylinderHandleAdornment")
+                    ring.Name = "AutoDribbleRadius"
+                    ring.Adornee = root
+                    ring.Radius = radius
+                    ring.Height = 0.06
+                    ring.Color3 = Color3.fromRGB(75, 220, 255)
+                    ring.Transparency = 0.83
+                    ring.CFrame = CFrame.new(0, -2.75, 0) * CFrame.Angles(math.pi / 2, 0, 0)
+                    ring.Parent = root
+                    run.Radius = ring
+                end
+            end
             for _, player in ipairs(Players:GetPlayers()) do
                 if active ~= run then return end
                 local character = player.Character
@@ -656,13 +753,13 @@ do
                     if not run.Animators[animator] then
                         run.Animators[animator] = animator.AnimationPlayed:Connect(function(track)
                             if run.Seen[track] and track.TimePosition <= 0.03 then run.Seen[track] = nil end
-                            react(player, character, track)
+                            react(player, character, track, "AnimationPlayed")
                         end)
                     end
                     local enemyRoot = character:FindFirstChild("HumanoidRootPart")
-                    if root and enemyRoot and (root.Position - enemyRoot.Position).Magnitude <= 17 then
+                    if root and enemyRoot and (root.Position - enemyRoot.Position).Magnitude <= radius then
                         for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-                            if track.IsPlaying then react(player, character, track) end
+                            if track.IsPlaying then react(player, character, track, "Heartbeat") end
                         end
                     end
                 end
