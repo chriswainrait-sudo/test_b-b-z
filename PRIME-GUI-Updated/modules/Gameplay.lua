@@ -538,22 +538,33 @@ do
         return player ~= LocalPlayer and player.Parent == Players
             and team and other and team ~= other
             and team.Name ~= "Visitor" and other.Name ~= "Visitor"
-            and not LocalPlayer.Neutral and not player.Neutral
     end
 
     local function isStealName(name)
-        return name:lower():gsub("[^%w]", ""):match("^steal") ~= nil
+        local normalized = name:lower():gsub("[^%w]", "")
+        if normalized:find("ball", 1, true) or normalized:find("enemy", 1, true)
+            or normalized:match("^stealcutsceneclone") then return false end
+        return normalized:find("steal", 1, true) ~= nil or normalized == "tendrilsnatch"
+            or normalized == "interceptstart" or normalized == "interceptpass"
     end
 
     local function start()
         stop()
         local run = {Animators = {}, Seen = setmetatable({}, {__mode = "k"}), LastAttempt = -math.huge}
         active = run
-        local stealIds = {["106268822474526"] = true, ["132607768946898"] = true}
+        local stealIds = {}
+        for _, id in ipairs({
+            "106268822474526", "132607768946898", "106903161138795", "131574882743115",
+            "73640455275496", "126262323536082", "81542122210068", "81049706464899",
+            "92687547264709", "115234986825930", "123028332466017", "101734348399377",
+            "103136446200160", "104710378016782", "109712944855870", "93151149202105",
+        }) do
+            stealIds[id] = true
+        end
         local assets = ReplicatedStorage:FindFirstChild("Assets")
-        local animations = assets and assets:FindFirstChild("Animations")
-        if animations then
-            for _, animation in ipairs(animations:GetDescendants()) do
+        for _, folderName in ipairs({"Animations", "StyleAnimations"}) do
+            local folder = assets and assets:FindFirstChild(folderName)
+            for _, animation in ipairs(folder and folder:GetDescendants() or {}) do
                 if animation:IsA("Animation") and isStealName(animation.Name) then
                     local id = animation.AnimationId:match("%d+")
                     if id then stealIds[id] = true end
@@ -561,12 +572,35 @@ do
             end
         end
 
+        local function clickDribble(button)
+            local signal = button.MouseButton1Click
+            if type(getconnections) == "function" then
+                local ok, connections = pcall(getconnections, signal)
+                local fired = false
+                for _, connection in ipairs(ok and type(connections) == "table" and connections or {}) do
+                    local enabledOk, enabled = pcall(function() return connection.Enabled end)
+                    if not enabledOk or enabled ~= false then
+                        local fnOk, fn = pcall(function() return connection.Function end)
+                        local success = fnOk and type(fn) == "function" and pcall(fn)
+                        if not success then
+                            success = pcall(function() connection:Fire() end)
+                        end
+                        fired = fired or success
+                    end
+                end
+                if fired then return true end
+            end
+            return type(firesignal) == "function" and pcall(firesignal, signal) or false
+        end
+
         local function react(player, character, track)
             if active ~= run or ScriptUnloaded or run.Busy or run.Seen[track]
                 or not isOpponent(player) or player.Character ~= character then return end
             local animation = track.Animation
-            if not animation or track.Looped or track.Speed <= 0 or track.TimePosition / track.Speed > 0.45 then return end
-            if not stealIds[animation.AnimationId:match("%d+")] and not isStealName(animation.Name) then return end
+            if track.TimePosition > 0.55 then return end
+            local id = animation and animation.AnimationId:match("%d+")
+            if not (id and stealIds[id]) and not (animation and isStealName(animation.Name))
+                and not isStealName(track.Name) then return end
             local myCharacter = LocalPlayer.Character
             local root = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
             local enemyRoot = character:FindFirstChild("HumanoidRootPart")
@@ -579,35 +613,30 @@ do
             local state = gameValues and gameValues:FindFirstChild("State")
             if not state or state.Value ~= "Playing" then return end
 
-            local ownsBall = localPlayerHasBall()
-            local getter = NexusUI.State.PassInputInfo
-            if type(getter) == "function" then
-                local _, _, _, _, _, _, controller = getter()
-                if controller and type(controller.GetPlayerPossessingBall) == "function" then
-                    local ok, holder = pcall(controller.GetPlayerPossessingBall, controller)
-                    if ok then ownsBall = holder == LocalPlayer end
-                end
-            end
-            if not ownsBall then return end
-
             local mobile = PlayerGui:FindFirstChild("Mobile")
             if not mobile then return end
-            local button = run.Button
-            if not button or not button:IsDescendantOf(mobile) then
-                local panel = mobile:FindFirstChild("Ball")
-                button = panel and panel:FindFirstChild("Dribble", true)
-                if not button or not button:IsA("GuiButton") then
-                    button = mobile:FindFirstChild("Dribble", true)
+            local panel = mobile:FindFirstChild("Ball")
+            local button = panel and panel:FindFirstChild("Dribble")
+            if not button or not button:IsA("ImageButton") then
+                button = run.Button
+                if not button or not button:IsDescendantOf(mobile) then
+                    for _, child in ipairs(mobile:GetDescendants()) do
+                        if child:IsA("ImageButton") and child.Name == "Dribble" then
+                            button = child
+                            break
+                        end
+                    end
                 end
-                if not button or not button:IsA("GuiButton") then return end
-                run.Button = button
             end
+            if not button or not button:IsDescendantOf(mobile) then return end
+            run.Button = button
 
             run.Seen[track] = true
             run.LastAttempt = now
             run.Busy = true
-            activateGuiButton(button)
+            local ok, fired = pcall(clickDribble, button)
             run.Busy = false
+            if not ok or not fired then run.Seen[track] = nil end
         end
 
         run.Heartbeat = RunService.Heartbeat:Connect(function()
