@@ -559,14 +559,6 @@ do
         stop()
         local run = {Animators = {}, Seen = setmetatable({}, {__mode = "k"}), LastAttempt = -math.huge}
         active = run
-        local lastLog = {}
-        local function log(key, message)
-            local now = os.clock()
-            if now - (lastLog[key] or -math.huge) < 0.75 then return end
-            lastLog[key] = now
-            print("[AutoDribble] " .. message)
-        end
-        log("start", "Enabled, radius " .. radius .. " studs")
         local stealIds = {}
         for _, id in ipairs({
             "106268822474526", "132607768946898", "106903161138795", "131574882743115",
@@ -603,60 +595,33 @@ do
                         fired = fired or success
                     end
                 end
-                if fired then return true, "connections" end
+                if fired then return true end
             end
-            if type(firesignal) == "function" then
-                local ok, err = pcall(firesignal, signal)
-                return ok, ok and "firesignal" or tostring(err)
-            end
-            return false, "no callable click connections"
+            return type(firesignal) == "function" and pcall(firesignal, signal) or false
         end
 
         local function react(player, character, track, source)
-            if active ~= run or ScriptUnloaded or run.Busy or (track and run.Seen[track])
+            if active ~= run or ScriptUnloaded or run.Busy or run.Seen[track]
                 or not isOpponent(player) or player.Character ~= character then return end
             local myCharacter = LocalPlayer.Character
             local root = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
             local enemyRoot = character:FindFirstChild("HumanoidRootPart")
             local humanoid = myCharacter and myCharacter:FindFirstChildOfClass("Humanoid")
             if not root or not enemyRoot or not humanoid or humanoid.Health <= 0 then return end
-            local distance = (root.Position - enemyRoot.Position).Magnitude
-            local limit = getRadius(character)
-            local detail = source
-            if track then
-                local animation = track.Animation
-                local id = animation and animation.AnimationId:match("%d+")
-                local name = animation and animation.Name or track.Name
-                if not (id and stealIds[id]) and not isStealName(name) and not isStealName(track.Name) then
-                    if source == "AnimationPlayed" and distance <= radius
-                        and track.Priority.Value >= Enum.AnimationPriority.Action2.Value then
-                        log("unknown:" .. player.Name, ("Nearby unrecognized action: %s id=%s enemy=%s"):format(name, id or "?", player.Name))
-                    end
-                    return
-                end
-                detail = ("%s %s id=%s position=%.3fs"):format(source, name, id or "?", track.TimePosition)
-                if source ~= "AnimationPlayed" and track.TimePosition > 0.55 then
-                    log("late", "Ignored late animation: " .. detail)
-                    return
-                end
-            end
-            if distance > limit then
-                if source ~= "PreSimulation" then log("range", ("Out of range: %s %.1f / %.2f studs (%s)"):format(player.Name, distance, limit, detail)) end
-                return
-            end
+            if (root.Position - enemyRoot.Position).Magnitude > getRadius(character) then return end
+            local animation = track.Animation
+            local id = animation and animation.AnimationId:match("%d+")
+            if not (id and stealIds[id]) and not (animation and isStealName(animation.Name))
+                and not isStealName(track.Name) then return end
+            if source ~= "AnimationPlayed" and track.TimePosition > 0.55 * math.max(1, track.Speed) then return end
             local now = os.clock()
-            if now - run.LastAttempt < 0.2 then return end
-            if userInputService:GetFocusedTextBox() then log("typing", "Skipped: text box focused"); return end
+            if now - run.LastAttempt < 0.08 or userInputService:GetFocusedTextBox() then return end
             local gameValues = ReplicatedStorage:FindFirstChild("GameValues")
             local state = gameValues and gameValues:FindFirstChild("State")
-            if not state or state.Value ~= "Playing" then
-                log("state", "Skipped: game state=" .. tostring(state and state.Value))
-                return
-            end
-            local detectedAt = os.clock()
+            if not state or state.Value ~= "Playing" then return end
 
             local mobile = PlayerGui:FindFirstChild("Mobile")
-            if not mobile then log("button", "Missing PlayerGui.Mobile"); return end
+            if not mobile then return end
             local panel = mobile:FindFirstChild("Ball")
             local button = panel and panel:FindFirstChild("Dribble")
             if not button or not button:IsA("ImageButton") then
@@ -670,21 +635,15 @@ do
                     end
                 end
             end
-            if not button or not button:IsDescendantOf(mobile) then log("button", "Missing Dribble ImageButton"); return end
+            if not button or not button:IsDescendantOf(mobile) then return end
             run.Button = button
 
-            if track then run.Seen[track] = true end
+            run.Seen[track] = true
             run.LastAttempt = now
             run.Busy = true
-            local ok, fired, method = pcall(clickDribble, button)
+            local ok, fired = pcall(clickDribble, button)
             run.Busy = false
-            if not ok or not fired then
-                if track then run.Seen[track] = nil end
-                log("clickError", "Click failed: " .. tostring(ok and method or fired))
-                return
-            end
-            log("click", ("Click dispatched via %s in %.1fms: %s %.1f studs (%s)"):format(
-                method, (os.clock() - detectedAt) * 1000, player.Name, distance, detail))
+            if not ok or not fired then run.Seen[track] = nil end
         end
 
         run.Scan = RunService.PreSimulation:Connect(function()
