@@ -2702,13 +2702,13 @@ end
             Callback = function(value) setFeature(key, value) end})
     end
     if IS_PREMIUM_USER == true then
-        Tabs.EventsFarm:AddToggle("BallExtraManipulation", {Title = "Ball Extra Manipulation", Default = false,
+        Tabs.Premium:AddToggle("BallExtraManipulation", {Title = "Ball Extra Manipulation", Default = false,
             Callback = function(value) setFeature("BallExtraManipulation", value) end})
-        Tabs.EventsFarm:AddToggle("RagePerfectShot", {Title = "Rage Perfect Shot", Default = false,
+        Tabs.Premium:AddToggle("RagePerfectShot", {Title = "Rage Perfect Shot", Default = false,
             Callback = function(value) setFeature("RagePerfectShot", value) end})
-        Tabs.EventsFarm:AddToggle("SlowBall", {Title = "Slowing Down the Ball", Default = false,
+        Tabs.Premium:AddToggle("SlowBall", {Title = "Slowing Down the Ball", Default = false,
             Callback = function(value) setFeature("SlowBall", value) end})
-        Tabs.EventsFarm:AddToggle("BallManipulation", {Title = "Ball Manipulation", Default = false,
+        Tabs.Premium:AddToggle("BallManipulation", {Title = "Ball Manipulation", Default = false,
             ShowDescription = true, Description = "Will not work with ping >120 ms or while using a VPN.",
             DescriptionColor = Color3.fromRGB(255, 70, 70),
             Callback = function(value) setFeature("BallManipulation", value) end})
