@@ -528,7 +528,6 @@ do
         active = nil
         if not run then return end
         if run.Heartbeat then run.Heartbeat:Disconnect() end
-        if run.StealSignal then run.StealSignal:Disconnect() end
         if run.Radius then run.Radius:Destroy() end
         for _, connection in pairs(run.Animators) do
             connection:Disconnect()
@@ -670,13 +669,6 @@ do
 
             if track then run.Seen[track] = true end
             run.LastAttempt = now
-            local controller = run.Controller
-            local previous = controller and controller.DribbleDB
-            local owner
-            if controller and type(controller.GetPlayerPossessingBall) == "function" then
-                local readOk, holder = pcall(controller.GetPlayerPossessingBall, controller)
-                if readOk then owner = holder and tostring(holder) or "none" end
-            end
             run.Busy = true
             local ok, fired, method = pcall(clickDribble, button)
             run.Busy = false
@@ -685,40 +677,8 @@ do
                 log("clickError", "Click failed: " .. tostring(ok and method or fired))
                 return
             end
-            log("click", ("Click dispatched via %s, holder=%s, cooldown=%.2fs"):format(
-                method, owner or "unknown", type(previous) == "number" and math.max(0, previous - tick()) or -1))
-            if type(previous) == "number" then
-                task.delay(0.1, function()
-                    if active ~= run then return end
-                    if controller.DribbleDB ~= previous then
-                        log("accepted", "Dribble cooldown changed after click")
-                    else
-                        log("noDribble", "Click dispatched but Dribble cooldown did not change")
-                    end
-                end)
-            end
+            log("click", "Click dispatched via " .. method)
         end
-
-        task.defer(function()
-            local ok, err = pcall(function()
-                local packages = ReplicatedStorage:FindFirstChild("Packages")
-                local module = packages and packages:FindFirstChild("Knit")
-                if not module then error("Knit not found") end
-                local knit = require(module)
-                if active ~= run then return end
-                local service = knit.GetService("BallService")
-                if active ~= run then return end
-                run.StealSignal = service.Steal:Connect(function(character)
-                    if active ~= run or typeof(character) ~= "Instance" or not character:IsA("Model") then return end
-                    local player = Players:GetPlayerFromCharacter(character)
-                    if player then react(player, character, nil, "BallService.Steal") end
-                end)
-                log("signal", "Listening to BBZ steal movement signal")
-                local controller = knit.GetController("BallController")
-                if active == run then run.Controller = controller end
-            end)
-            if not ok and active == run then log("signalError", "Knit diagnostics unavailable: " .. tostring(err)) end
-        end)
 
         run.Heartbeat = RunService.Heartbeat:Connect(function()
             if active ~= run then return end
