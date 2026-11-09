@@ -523,11 +523,16 @@ end
 do
     local active
     local radius = 17
+    local nutmegRadius = radius + 7.75
+
+    local function getRadius(character)
+        return character:GetAttribute("Nutmeg") and nutmegRadius or radius
+    end
     local function stop()
         local run = active
         active = nil
         if not run then return end
-        if run.Heartbeat then run.Heartbeat:Disconnect() end
+        if run.Scan then run.Scan:Disconnect() end
         if run.Radius then run.Radius:Destroy() end
         for _, connection in pairs(run.Animators) do
             connection:Disconnect()
@@ -616,6 +621,7 @@ do
             local humanoid = myCharacter and myCharacter:FindFirstChildOfClass("Humanoid")
             if not root or not enemyRoot or not humanoid or humanoid.Health <= 0 then return end
             local distance = (root.Position - enemyRoot.Position).Magnitude
+            local limit = getRadius(character)
             local detail = source
             if track then
                 local animation = track.Animation
@@ -634,8 +640,8 @@ do
                     return
                 end
             end
-            if distance > radius then
-                if source ~= "Heartbeat" then log("range", ("Out of range: %s %.1f studs (%s)"):format(player.Name, distance, detail)) end
+            if distance > limit then
+                if source ~= "PreSimulation" then log("range", ("Out of range: %s %.1f / %.2f studs (%s)"):format(player.Name, distance, limit, detail)) end
                 return
             end
             local now = os.clock()
@@ -647,7 +653,7 @@ do
                 log("state", "Skipped: game state=" .. tostring(state and state.Value))
                 return
             end
-            log("detected:" .. player.Name, ("Detected %s at %.1f studs via %s"):format(player.Name, distance, detail))
+            local detectedAt = os.clock()
 
             local mobile = PlayerGui:FindFirstChild("Mobile")
             if not mobile then log("button", "Missing PlayerGui.Mobile"); return end
@@ -677,10 +683,11 @@ do
                 log("clickError", "Click failed: " .. tostring(ok and method or fired))
                 return
             end
-            log("click", "Click dispatched via " .. method)
+            log("click", ("Click dispatched via %s in %.1fms: %s %.1f studs (%s)"):format(
+                method, (os.clock() - detectedAt) * 1000, player.Name, distance, detail))
         end
 
-        run.Heartbeat = RunService.Heartbeat:Connect(function()
+        run.Scan = RunService.PreSimulation:Connect(function()
             if active ~= run then return end
             if ScriptUnloaded then stop(); return end
             if run.Busy then return end
@@ -717,9 +724,9 @@ do
                         end)
                     end
                     local enemyRoot = character:FindFirstChild("HumanoidRootPart")
-                    if root and enemyRoot and (root.Position - enemyRoot.Position).Magnitude <= radius then
+                    if root and enemyRoot and (root.Position - enemyRoot.Position).Magnitude <= getRadius(character) then
                         for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-                            if track.IsPlaying then react(player, character, track, "Heartbeat") end
+                            if track.IsPlaying then react(player, character, track, "PreSimulation") end
                         end
                     end
                 end
@@ -735,7 +742,7 @@ do
 
     Tabs.Main:AddToggle("AutoDribble", {
         Title = "Auto Dribble",
-        Description = "Dribbles when an opponent within 17 studs starts a steal",
+        Description = "Dribbles at the start of an opponent steal, with extra range for Nutmeg",
         Default = false,
         Callback = function(value)
             if value and not ScriptUnloaded then start() else stop() end
