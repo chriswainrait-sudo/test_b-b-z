@@ -304,69 +304,6 @@ Tabs.Main:AddToggle("InfinitePumpFakes", {
 Tabs.Visuals:AddSection("Visuals")
 
 do
-    local selected = "Default"
-    local generation = 0
-    local presence, wrapper, previousOverride
-
-    local function restore()
-        if presence and rawget(presence, "Fire") == wrapper then
-            rawset(presence, "Fire", previousOverride)
-        end
-        presence, wrapper, previousOverride = nil, nil, nil
-    end
-
-    Tabs.Visuals:AddDropdown("PublicDeviceIcon", {
-        Title = "Device Icon",
-        Description = "Choose the device reported by the game's presence updates",
-        Values = {"Default", "PC", "Mobile", "Console"},
-        Default = "Default",
-        Callback = function(value)
-            selected = value or "Default"
-            generation += 1
-            local token = generation
-            if selected == "Default" or ScriptUnloaded then restore(); return end
-            if presence then return end
-
-            task.defer(function()
-                local ok, failure = pcall(function()
-                    local packages = ReplicatedStorage:FindFirstChild("Packages")
-                    local module = packages and packages:FindFirstChild("Knit")
-                    if not module then error("BBZ presence is unavailable") end
-                    local knit = require(module)
-                    if token ~= generation or ScriptUnloaded then return end
-                    local signal = knit.GetService("PlayerService").Presence
-                    if token ~= generation or ScriptUnloaded then return end
-                    if type(signal) ~= "table" or type(signal.Fire) ~= "function" then
-                        error("BBZ presence is unavailable")
-                    end
-
-                    local original = signal.Fire
-                    local saved = rawget(signal, "Fire")
-                    local function send(object, device, ...)
-                        if object == signal and selected ~= "Default"
-                            and (device == "PC" or device == "Mobile" or device == "Console") then
-                            device = selected
-                        end
-                        return original(object, device, ...)
-                    end
-                    rawset(signal, "Fire", send)
-                    presence, wrapper, previousOverride = signal, send, saved
-                end)
-                if not ok and token == generation and not ScriptUnloaded then
-                    NexusUI:Notify({Title = "Device Icon", Content = tostring(failure), Duration = 4})
-                end
-            end)
-        end,
-    })
-
-    RegisterUnloadCallback(function()
-        generation += 1
-        selected = "Default"
-        restore()
-    end)
-end
-
-do
     local assets = ReplicatedStorage:FindFirstChild("Assets")
     local shots = assets and assets:FindFirstChild("ShotEffects")
     local effects = ReplicatedStorage:FindFirstChild("Effects")
