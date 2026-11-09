@@ -520,6 +520,144 @@ local function localPlayerHasBall()
     return ball ~= nil and ball:IsA("GuiObject") and ball.Visible == true
 end
 
+do
+    local active
+    local function stop()
+        local run = active
+        active = nil
+        if not run then return end
+        run.Heartbeat:Disconnect()
+        for _, connection in pairs(run.Animators) do
+            connection:Disconnect()
+        end
+    end
+
+    local function isOpponent(player)
+        local team = LocalPlayer.Team
+        local other = player.Team
+        return player ~= LocalPlayer and player.Parent == Players
+            and team and other and team ~= other
+            and team.Name ~= "Visitor" and other.Name ~= "Visitor"
+            and not LocalPlayer.Neutral and not player.Neutral
+    end
+
+    local function isStealName(name)
+        return name:lower():gsub("[^%w]", ""):match("^steal") ~= nil
+    end
+
+    local function start()
+        stop()
+        local run = {Animators = {}, Seen = setmetatable({}, {__mode = "k"}), LastAttempt = -math.huge}
+        active = run
+        local stealIds = {["106268822474526"] = true, ["132607768946898"] = true}
+        local assets = ReplicatedStorage:FindFirstChild("Assets")
+        local animations = assets and assets:FindFirstChild("Animations")
+        if animations then
+            for _, animation in ipairs(animations:GetDescendants()) do
+                if animation:IsA("Animation") and isStealName(animation.Name) then
+                    local id = animation.AnimationId:match("%d+")
+                    if id then stealIds[id] = true end
+                end
+            end
+        end
+
+        local function react(player, character, track)
+            if active ~= run or ScriptUnloaded or run.Busy or run.Seen[track]
+                or not isOpponent(player) or player.Character ~= character then return end
+            local animation = track.Animation
+            if not animation or track.Looped or track.Speed <= 0 or track.TimePosition / track.Speed > 0.45 then return end
+            if not stealIds[animation.AnimationId:match("%d+")] and not isStealName(animation.Name) then return end
+            local myCharacter = LocalPlayer.Character
+            local root = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
+            local enemyRoot = character:FindFirstChild("HumanoidRootPart")
+            local humanoid = myCharacter and myCharacter:FindFirstChildOfClass("Humanoid")
+            if not root or not enemyRoot or not humanoid or humanoid.Health <= 0
+                or (root.Position - enemyRoot.Position).Magnitude > 17 then return end
+            local now = os.clock()
+            if now - run.LastAttempt < 0.2 or userInputService:GetFocusedTextBox() then return end
+            local gameValues = ReplicatedStorage:FindFirstChild("GameValues")
+            local state = gameValues and gameValues:FindFirstChild("State")
+            if not state or state.Value ~= "Playing" then return end
+
+            local ownsBall = localPlayerHasBall()
+            local getter = NexusUI.State.PassInputInfo
+            if type(getter) == "function" then
+                local _, _, _, _, _, _, controller = getter()
+                if controller and type(controller.GetPlayerPossessingBall) == "function" then
+                    local ok, holder = pcall(controller.GetPlayerPossessingBall, controller)
+                    if ok then ownsBall = holder == LocalPlayer end
+                end
+            end
+            if not ownsBall then return end
+
+            local mobile = PlayerGui:FindFirstChild("Mobile")
+            if not mobile then return end
+            local button = run.Button
+            if not button or not button:IsDescendantOf(mobile) then
+                local panel = mobile:FindFirstChild("Ball")
+                button = panel and panel:FindFirstChild("Dribble", true)
+                if not button or not button:IsA("GuiButton") then
+                    button = mobile:FindFirstChild("Dribble", true)
+                end
+                if not button or not button:IsA("GuiButton") then return end
+                run.Button = button
+            end
+
+            run.Seen[track] = true
+            run.LastAttempt = now
+            run.Busy = true
+            activateGuiButton(button)
+            run.Busy = false
+        end
+
+        run.Heartbeat = RunService.Heartbeat:Connect(function()
+            if active ~= run then return end
+            if ScriptUnloaded then stop(); return end
+            if run.Busy then return end
+            local current = {}
+            local myCharacter = LocalPlayer.Character
+            local root = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
+            for _, player in ipairs(Players:GetPlayers()) do
+                if active ~= run then return end
+                local character = player.Character
+                local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+                local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
+                if animator and humanoid.Health > 0 and isOpponent(player) then
+                    current[animator] = true
+                    if not run.Animators[animator] then
+                        run.Animators[animator] = animator.AnimationPlayed:Connect(function(track)
+                            if run.Seen[track] and track.TimePosition <= 0.03 then run.Seen[track] = nil end
+                            react(player, character, track)
+                        end)
+                    end
+                    local enemyRoot = character:FindFirstChild("HumanoidRootPart")
+                    if root and enemyRoot and (root.Position - enemyRoot.Position).Magnitude <= 17 then
+                        for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                            if track.IsPlaying then react(player, character, track) end
+                        end
+                    end
+                end
+            end
+            for animator, connection in pairs(run.Animators) do
+                if not current[animator] then
+                    connection:Disconnect()
+                    run.Animators[animator] = nil
+                end
+            end
+        end)
+    end
+
+    Tabs.Main:AddToggle("AutoDribble", {
+        Title = "Auto Dribble",
+        Description = "Dribbles when an opponent within 17 studs starts a steal",
+        Default = false,
+        Callback = function(value)
+            if value and not ScriptUnloaded then start() else stop() end
+        end,
+    })
+    RegisterUnloadCallback(stop)
+end
+
 NoCooldownControllerInstance = nil
 
 function FindNoCooldownController()
