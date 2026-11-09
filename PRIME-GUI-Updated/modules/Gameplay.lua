@@ -109,7 +109,8 @@ do
     -- modify the loaded Zones table locally; those edits do not affect opponents.
     local zoneDribbles = {StreetDribbler = 4, Perfectionist = 4, EmperorVision = 4,
         GoldVision = 4, Senses = 4, Darkness = 4, ["777"] = 5,
-        Ordinary = 4, Shock = 4, Oldschool = 5, Samurai = 2}
+        Ordinary = 4, Shock = 4, Oldschool = 5, Samurai = 2,
+        GoldenSpin = 4, Shadow = 4, Evolved = 4, NumberOneSkarpFan = 6}
     local heartbeat
     local lastUpdate = 0
     local GREEN = Color3.fromRGB(90, 235, 135)
@@ -120,7 +121,7 @@ do
     -- BEGIN STEAL SUPPORT STATE (pure functions; tested outside Studio)
     local function newDribbleState(now)
         return {used = 0, known = false, readyAt = now + 4,
-            db = now, protectedUntil = 0, specialUntil = 0, ambiguousUntil = 0}
+            db = now, protectedUntil = 0, specialUntil = 0, ambiguousUntil = 0, exhaustedUntil = 0}
     end
 
     local function advanceDribbleState(state, now)
@@ -136,6 +137,7 @@ do
         if state.used >= maxHigh then
             state.used = 0
             state.db = now + 4
+            state.exhaustedUntil = state.db
             state.known = true
             state.ambiguousUntil = 0
         else
@@ -257,7 +259,7 @@ do
     local function maxDribbles(player, character, owner)
         local zone = player:FindFirstChild("Zone")
         local zoneName = zone and zone:IsA("StringValue") and zone.Value
-        if not zoneName then return 2, 5 end
+        if not zoneName then return 2, 6 end
         local max = zoneName and zoneDribbles and zoneDribbles[zoneName] or 3
         local active = valueOf(player, character, "InZone")
         if active == nil and owner then active = readBallState("ballPlayerZoneIsActive") end
@@ -283,7 +285,7 @@ do
         local gui = Instance.new("BillboardGui")
         gui.Name = "PRIME_StealSupport"
         gui.Adornee = adornee
-        gui.Size = UDim2.fromOffset(320, 24)
+        gui.Size = UDim2.fromOffset(320, 40)
         gui.StudsOffsetWorldSpace = Vector3.new(0, 3, 0)
         gui.AlwaysOnTop = true
         gui.MaxDistance = 600
@@ -298,7 +300,7 @@ do
         label.TextWrapped = false
         label.TextColor3 = AMBER
         label.TextStrokeTransparency = 0.6
-        label.Text = "DRIBBLE ?"
+        label.Text = "DRIBBLES ?"
         label.Parent = gui
         gui.Parent = GuiParent
         record.gui, record.label = gui, label
@@ -330,6 +332,7 @@ do
             record.state.readyAt = now + 7
             record.state.db = now
             record.state.ambiguousUntil = 0
+            record.state.exhaustedUntil = 0
         end
     end
 
@@ -481,7 +484,32 @@ do
                     elseif not playing then
                         text, color = "WAITING FOR ROUND", "dim"
                     end
-                    record.label.Text = (isOwner and "BALL | " or "") .. text
+                    local prefix = isOwner and "BALL | " or ""
+                    if playing and next(animationInfo) and record.animator then
+                        local state = record.state
+                        local cap = low == high and tostring(high) or ("%d–%d"):format(low, high)
+                        local remaining
+                        if player:GetAttribute("InfiniteDribbles") == true then
+                            remaining, cap = "∞", "∞"
+                        elseif state.specialUntil > now or not state.known then
+                            remaining = "?"
+                        elseif state.exhaustedUntil > now then
+                            remaining = "0"
+                        else
+                            local minimum = math.max(0, low - state.used)
+                            local maximum = math.max(0, high - state.used)
+                            remaining = minimum == maximum and ("~%d"):format(maximum)
+                                or ("~%d–%d"):format(minimum, maximum)
+                        end
+                        local counter = ("%sDRIBBLES %s / %s"):format(prefix, remaining, cap)
+                        if text:find("DRIBBLE READY", 1, true) or text:find("DRIBBLE ? /", 1, true) then
+                            record.label.Text = counter
+                        else
+                            record.label.Text = counter .. "\n" .. text
+                        end
+                    else
+                        record.label.Text = prefix .. text
+                    end
                     record.label.TextColor3 = ({green = GREEN, red = RED, amber = AMBER, dim = DIM})[color]
                 elseif record.gui then record.gui.Enabled = false end
             end
@@ -490,7 +518,7 @@ do
 
     Tabs.Main:AddToggle("StealSupport", {
         Title = "Steal Support",
-        Description = "Passive animation-based Dribble estimates (~); protection stays unknown until observed",
+        Description = "Shows remaining dribbles above players, including active Flow limits",
         Default = false,
         Callback = function(value) if value and not ScriptUnloaded then start() else stop() end end,
     })
