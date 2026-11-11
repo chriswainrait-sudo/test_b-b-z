@@ -204,115 +204,103 @@ local function createImageBackground(parent)
     return artwork
 end
 
-local function createAutumnLeaves(mainFrame, innerClip, screenGui)
+local function createSnowfall(mainFrame, innerClip, screenGui)
     local layer, animation, destruction
-    local leaves, elapsed, destroyed = {}, 0, false
+    local snowflakes, elapsed, destroyed = {}, 0, false
     local random = Random.new()
-    local palette = {
-        Color3.fromRGB(239, 122, 33), Color3.fromRGB(255, 173, 45),
-        Color3.fromRGB(244, 198, 62), Color3.fromRGB(214, 91, 29),
-    }
-    local silhouettes = {
-        {{0.50,0.02},{0.61,0.27},{0.78,0.15},{0.74,0.40},{0.98,0.34},
-            {0.87,0.55},{0.98,0.64},{0.69,0.72},{0.57,0.87},{0.51,0.78},
-            {0.49,0.78},{0.40,0.86},{0.31,0.72},{0.03,0.64},{0.14,0.54},
-            {0.02,0.34},{0.26,0.40},{0.22,0.15},{0.39,0.27}},
-        {{0.50,0.02},{0.65,0.15},{0.81,0.34},{0.87,0.52},{0.78,0.72},
-            {0.60,0.88},{0.50,0.94},{0.34,0.85},{0.20,0.67},{0.14,0.46},{0.27,0.22}},
-        {{0.50,0.02},{0.66,0.23},{0.85,0.20},{0.76,0.40},{0.96,0.44},
-            {0.79,0.60},{0.84,0.72},{0.60,0.78},{0.50,0.94},{0.40,0.78},
-            {0.16,0.72},{0.21,0.60},{0.04,0.44},{0.24,0.40},{0.15,0.20},{0.34,0.23}},
-    }
+
     local function clear()
         if animation then animation:Disconnect(); animation = nil end
         if layer then layer:Destroy(); layer = nil end
-        table.clear(leaves)
+        table.clear(snowflakes)
         elapsed = 0
     end
-    local function frame(parent, color, x, y, width, height)
-        local f = Instance.new("Frame")
-        f.BorderSizePixel = 0
-        f.BackgroundColor3 = color
-        f.BackgroundTransparency = 0.10
-        f.Position = UDim2.fromScale(x, y)
-        f.Size = UDim2.fromScale(width, height)
-        f.Active, f.Selectable, f.ZIndex = false, false, 2
-        f.Parent = parent
-        return f
-    end
-    local function makeLeaf()
-        local leaf = Instance.new("Frame")
-        local size = random:NextInteger(13, 21)
-        leaf.Name = "Leaf"
-        leaf.AnchorPoint = Vector2.new(0.5, 0.5)
-        leaf.Size = UDim2.fromOffset(size, size)
-        leaf.BackgroundTransparency, leaf.BorderSizePixel = 1, 0
-        leaf.Active, leaf.Selectable, leaf.ZIndex = false, false, 2
-        leaf.Parent = layer
-        local color = palette[random:NextInteger(1, #palette)]
-        local polygon = silhouettes[random:NextInteger(1, #silhouettes)]
+
+    local function makeSnowflake()
+        local size = random:NextInteger(15, 22)
+        local gui = Instance.new("Frame")
+        gui.Name = "Snowflake"
+        gui.AnchorPoint = Vector2.new(0.5, 0.5)
+        gui.Size = UDim2.fromOffset(size, size)
+        gui.BackgroundTransparency = 1
+        gui.Active, gui.Selectable, gui.ZIndex = false, false, 2
+        gui.Parent = layer
         local pieces = {}
-        for row = 0, 19 do
-            local y, intersections = (row + 0.5) / 20, {}
-            for i, a in ipairs(polygon) do
-                local b = polygon[i % #polygon + 1]
-                if (a[2] <= y and b[2] > y) or (b[2] <= y and a[2] > y) then
-                    intersections[#intersections + 1] = a[1] + (y - a[2]) * (b[1] - a[1]) / (b[2] - a[2])
-                end
-            end
-            table.sort(intersections)
-            for i = 1, #intersections - 1, 2 do
-                pieces[#pieces + 1] = frame(leaf, color, intersections[i], row / 20,
-                    intersections[i + 1] - intersections[i], 0.052)
+        local color = Color3.new(1, 1, 1)
+
+        local function line(a, b)
+            local delta = b - a
+            local stroke = Instance.new("Frame")
+            stroke.AnchorPoint = Vector2.new(0.5, 0.5)
+            stroke.Position = UDim2.fromScale((a.X + b.X) / 2, (a.Y + b.Y) / 2)
+            stroke.Size = UDim2.new(delta.Magnitude, 0, 0, 1.25)
+            stroke.Rotation = math.deg(math.atan2(delta.Y, delta.X))
+            stroke.BackgroundColor3 = color
+            stroke.BackgroundTransparency = 0.12
+            stroke.BorderSizePixel = 0
+            stroke.Active, stroke.Selectable, stroke.ZIndex = false, false, 2
+            stroke.Parent = gui
+            pieces[#pieces + 1] = stroke
+        end
+
+        local center = Vector2.new(0.5, 0.5)
+        for arm = 0, 5 do
+            local angle = arm * math.pi / 3
+            local direction = Vector2.new(math.cos(angle), math.sin(angle))
+            line(center, center + direction * 0.46)
+            local branch = center + direction * 0.29
+            for _, side in ipairs({-1, 1}) do
+                local branchAngle = angle + side * math.pi / 3
+                line(branch, branch + Vector2.new(math.cos(branchAngle), math.sin(branchAngle)) * 0.16)
             end
         end
-        local vein = color:Lerp(Color3.fromRGB(99, 51, 17), 0.45)
-        pieces[#pieces + 1] = frame(leaf, vein, 0.48, 0.18, 0.035, 0.81)
-        for _, side in ipairs({-1, 1}) do
-            local branch = frame(leaf, vein, 0.49, 0.40, 0.025, 0.30)
-            branch.Rotation = side * 42
-            pieces[#pieces + 1] = branch
-        end
-        local particle = {gui = leaf, pieces = pieces, size = size, x = random:NextNumber(0.04, 0.96),
-            y = random:NextNumber(0.02, 0.82), speed = random:NextNumber(27, 58),
-            phase = random:NextNumber(0, math.pi * 2), sway = random:NextNumber(0.015, 0.055),
-            rotation = random:NextNumber(-180, 180), spin = random:NextNumber(-38, 38)}
-        leaf.Position = UDim2.fromScale(particle.x, particle.y)
-        leaf.Rotation = particle.rotation
-        return particle
+
+        local flake = {
+            Gui = gui, Pieces = pieces, Size = size,
+            X = random:NextNumber(0, 1), Y = random:NextNumber(0, 1),
+            Speed = random:NextNumber(14, 31), Phase = random:NextNumber(0, math.pi * 2),
+            Sway = random:NextNumber(0.008, 0.025), Rotation = random:NextNumber(0, 360),
+            Spin = random:NextNumber(-12, 12), Opacity = random:NextNumber(0.08, 0.22),
+        }
+        gui.Position = UDim2.fromScale(flake.X, flake.Y)
+        gui.Rotation = flake.Rotation
+        return flake
     end
+
     local function setEnabled(value)
         if not value or destroyed or ScriptUnloaded then clear(); return end
         if animation then return end
         layer = Instance.new("Frame")
-        layer.Name = "AutumnLeaves"
+        layer.Name = "WinterSnowfall"
         layer.Size = UDim2.fromScale(1, 1)
-        layer.BackgroundTransparency, layer.BorderSizePixel = 1, 0
+        layer.BackgroundTransparency = 1
         layer.Active, layer.Selectable, layer.ZIndex = false, false, 2
         layer.ClipsDescendants = true
         layer.Parent = innerClip
-        for _ = 1, 22 do leaves[#leaves + 1] = makeLeaf() end
+        for _ = 1, 26 do snowflakes[#snowflakes + 1] = makeSnowflake() end
         animation = RunService.Heartbeat:Connect(function(dt)
             if not mainFrame.Parent or not screenGui.Parent or ScriptUnloaded then clear(); return end
             if not mainFrame.Visible or not screenGui.Enabled then return end
             local height = layer.AbsoluteSize.Y
             if height <= 0 then return end
             dt = math.min(dt, 0.1)
-            elapsed = elapsed + dt
-            for _, leaf in ipairs(leaves) do
-                leaf.y = leaf.y + leaf.speed * dt / height
-                leaf.rotation = (leaf.rotation + leaf.spin * dt) % 360
-                if leaf.y > 1 + leaf.size / height then
-                    leaf.y, leaf.x = -leaf.size / height, random:NextNumber(0.04, 0.96)
+            elapsed += dt
+            for _, flake in ipairs(snowflakes) do
+                flake.Y += flake.Speed * dt / height
+                flake.Rotation = (flake.Rotation + flake.Spin * dt) % 360
+                if flake.Y > 1 + flake.Size / height then
+                    flake.Y, flake.X = -flake.Size / height, random:NextNumber(0, 1)
                 end
-                leaf.gui.Position = UDim2.fromScale(leaf.x + math.sin(elapsed * 0.9 + leaf.phase) * leaf.sway, leaf.y)
-                leaf.gui.Rotation = leaf.rotation + math.sin(elapsed + leaf.phase) * 16
-                local fade = math.clamp((leaf.y - 0.84) / 0.16, 0, 1)
-                local transparency = 0.10 + fade * 0.90
-                for _, piece in ipairs(leaf.pieces) do piece.BackgroundTransparency = transparency end
+                flake.Gui.Position = UDim2.fromScale(
+                    flake.X + math.sin(elapsed * 0.55 + flake.Phase) * flake.Sway, flake.Y)
+                flake.Gui.Rotation = flake.Rotation
+                local fade = math.clamp((flake.Y - 0.88) / 0.12, 0, 1)
+                local transparency = flake.Opacity + fade * (1 - flake.Opacity)
+                for _, piece in ipairs(flake.Pieces) do piece.BackgroundTransparency = transparency end
             end
         end)
     end
+
     local function destroy()
         destroyed = true
         clear()
@@ -322,7 +310,6 @@ local function createAutumnLeaves(mainFrame, innerClip, screenGui)
     return {SetEnabled = setEnabled, Destroy = destroy}
 end
 
--- Silver border that fades from the top-left corner.
 local function borderGradient()
     local g = Instance.new("UIGradient")
     g.Color = ColorSequence.new({
@@ -4090,7 +4077,7 @@ function NexusUI:CreateWindow(options)
     local isPremiumUser = IS_PREMIUM_USER
 
     logoSubtitle.Text = isPremiumUser and "PREMIUM" or "FREEMIUM"
-    NexusUI:BindColor(logoSubtitle, "TextColor3", function() return COLOR_TEXT end)
+    NexusUI:BindColor(logoSubtitle, "TextColor3", function() return Color3.new(1, 1, 1) end)
     logoSubtitle.TextXAlignment = Enum.TextXAlignment.Left
     logoSubtitle.TextYAlignment = Enum.TextYAlignment.Center
 
@@ -4099,12 +4086,14 @@ function NexusUI:CreateWindow(options)
     logoSubtitle.ZIndex = 3
     logoSubtitle.Parent = logoContainer
     local sh = Instance.new("UIGradient")
+    local tierBase = isPremiumUser and Color3.fromRGB(210, 145, 35) or Color3.fromRGB(35, 175, 90)
+    local tierLight = isPremiumUser and Color3.fromRGB(255, 230, 142) or Color3.fromRGB(155, 255, 190)
     sh.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0,Color3.fromRGB(142,142,150)),
-        ColorSequenceKeypoint.new(0.35,Color3.fromRGB(210,210,218)),
-        ColorSequenceKeypoint.new(0.5,Color3.new(1,1,1)),
-        ColorSequenceKeypoint.new(0.65,Color3.fromRGB(210,210,218)),
-        ColorSequenceKeypoint.new(1,Color3.fromRGB(142,142,150))
+        ColorSequenceKeypoint.new(0, tierBase),
+        ColorSequenceKeypoint.new(0.35, tierLight),
+        ColorSequenceKeypoint.new(0.5, isPremiumUser and Color3.fromRGB(255, 248, 211) or Color3.fromRGB(210, 255, 225)),
+        ColorSequenceKeypoint.new(0.65, tierLight),
+        ColorSequenceKeypoint.new(1, tierBase)
     })
     sh.Offset = Vector2.new(-1,0)
     sh.Parent = logoSubtitle
@@ -4146,10 +4135,28 @@ function NexusUI:CreateWindow(options)
         local badgeCorner = Instance.new("UICorner")
         badgeCorner.CornerRadius = UDim.new(0, 8)
         badgeCorner.Parent = badge
-        local badgeLogo = makeLogo(badge, 28)
-        badgeLogo.AnchorPoint = Vector2.new(0.5, 0.5)
-        badgeLogo.Position = UDim2.fromScale(0.5, 0.5)
-        badgeLogo.ZIndex = 7
+        badge.ClipsDescendants = true
+        local avatar = Instance.new("ImageLabel")
+        avatar.Name = "PlayerHeadshot"
+        avatar.BackgroundTransparency = 1
+        avatar.Size = UDim2.fromScale(1, 1)
+        avatar.ScaleType = Enum.ScaleType.Crop
+        avatar.ZIndex = 7
+        avatar.Parent = badge
+        badgeCorner:Clone().Parent = avatar
+        task.spawn(function()
+            for attempt = 1, 3 do
+                if not avatar.Parent then return end
+                local ok, image, ready = pcall(Players.GetUserThumbnailAsync, Players,
+                    LocalPlayer.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420)
+                if not avatar.Parent then return end
+                if ok and type(image) == "string" and image ~= "" then
+                    avatar.Image = image
+                    if ready then return end
+                end
+                if attempt < 3 then task.wait(1) end
+            end
+        end)
 
         local username = Instance.new("TextLabel")
         username.Name = "PlayerUsername"
@@ -4245,11 +4252,11 @@ function NexusUI:CreateWindow(options)
     end
 
     local window = {}
-    local autumnLeaves = createAutumnLeaves(mainFrame, innerClip, screenGui)
+    local snowfall = createSnowfall(mainFrame, innerClip, screenGui)
     function window:SetAutumnLeavesEnabled(value)
-        autumnLeaves.SetEnabled(value == true)
+        snowfall.SetEnabled(value == true)
     end
-    RegisterUnloadCallback(autumnLeaves.Destroy)
+    RegisterUnloadCallback(snowfall.Destroy)
     local restoreGui
     local connections = {}
     local function track(conn)
@@ -6133,8 +6140,8 @@ Tabs.Settings = Window:AddTab({ Title = "Settings"})
 NexusUI:SetTheme("Noir")
 
 Tabs.Settings:AddSection("Appearance")
-Tabs.Settings:AddToggle("AutumnLeaves", {Title = "Autumn Leaves",
-    Description = "Falling orange and yellow leaves inside the interface", Default = true,
+Tabs.Settings:AddToggle("AutumnLeaves", {Title = "Snowfall",
+    Description = "Gentle falling snowflakes inside the interface", Default = true,
     Callback = function(value) Window:SetAutumnLeavesEnabled(value) end})
 Window:SetAutumnLeavesEnabled(true)
 
