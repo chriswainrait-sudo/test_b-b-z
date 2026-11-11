@@ -4810,20 +4810,10 @@ function NexusUI:CreateWindow(options)
     cornerButtons.Size = UDim2.new(0, 92, 0, 28)
     cornerButtons.AnchorPoint = Vector2.new(0, 0)
     cornerButtons.Position = UDim2.new(1, 8, 0, 0)
-    cornerButtons.BackgroundColor3 = mainFrame.BackgroundColor3
-    cornerButtons.BackgroundTransparency = mainFrame.BackgroundTransparency
+    cornerButtons.BackgroundTransparency = 1
     cornerButtons.BorderSizePixel = 0
     cornerButtons.ZIndex = 8
     cornerButtons.Parent = mainFrame
-    windowGradient().Parent = cornerButtons
-    mainCorner:Clone().Parent = cornerButtons
-    local controlsBorder = Instance.new("UIStroke")
-    controlsBorder.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    controlsBorder.Color = Color3.new(1, 1, 1)
-    controlsBorder.Transparency = 0.1
-    controlsBorder.Thickness = 1.2
-    controlsBorder.Parent = cornerButtons
-    borderGradient().Parent = controlsBorder
 
     local cornerButtonsLayout = Instance.new("UIListLayout")
     cornerButtonsLayout.FillDirection = Enum.FillDirection.Horizontal
