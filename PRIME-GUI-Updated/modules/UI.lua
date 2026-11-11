@@ -4908,7 +4908,7 @@ function NexusUI:CreateWindow(options)
         local btn = Instance.new("TextButton")
         btn.Size = UDim2.new(0, 42, 0, 28)
         NexusUI:BindColor(btn, "BackgroundColor3", function() return COLOR_CONTROL end)
-        btn.BackgroundTransparency = 1
+        btn.BackgroundTransparency = 0.45
         btn.BorderSizePixel = 0
         btn.Text = text
         NexusUI:BindColor(btn, "TextColor3", function() return COLOR_TEXT end)
@@ -4919,6 +4919,17 @@ function NexusUI:CreateWindow(options)
         btn.ZIndex = 9
         btn:SetAttribute("KeepFont", true)
         btn.Parent = cornerButtons
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 7)
+        corner.Parent = btn
+        local stroke = Instance.new("UIStroke")
+        stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        stroke.Thickness = 1
+        stroke.Transparency = 0.25
+        NexusUI:BindColor(stroke, "Color", function() return COLOR_BORDER end)
+        stroke.Parent = btn
+
 
         TrackGuiConnection(btn.MouseEnter:Connect(function()
             TweenService:Create(btn, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {TextColor3 = COLOR_TEXT}):Play()
