@@ -4129,35 +4129,90 @@ function NexusUI:CreateWindow(options)
         badge.Size = UDim2.fromOffset(40, 40)
         badge.Position = UDim2.fromOffset(12, 13)
         badge.BorderSizePixel = 0
-        badge.BackgroundTransparency = 0.45
+        badge.BackgroundTransparency = 1
         badge.ZIndex = 6
-        NexusUI:BindColor(badge, "BackgroundColor3", function() return COLOR_CONTROL end)
         badge.Parent = content
-        local badgeCorner = Instance.new("UICorner")
-        badgeCorner.CornerRadius = UDim.new(0, 8)
-        badgeCorner.Parent = badge
-        badge.ClipsDescendants = true
-        local avatar = Instance.new("ImageLabel")
+        badge.BackgroundTransparency = 1
+        badge.ClipsDescendants = false
+        local avatar = Instance.new("ViewportFrame")
         avatar.Name = "PlayerHeadshot"
         avatar.BackgroundTransparency = 1
+        avatar.BorderSizePixel = 0
         avatar.Size = UDim2.fromScale(1, 1)
-        avatar.ScaleType = Enum.ScaleType.Crop
+        avatar.Ambient = Color3.fromRGB(220, 220, 220)
+        avatar.LightColor = Color3.new(1, 1, 1)
+        avatar.LightDirection = Vector3.new(-1, -1, -2)
         avatar.ZIndex = 7
         avatar.Parent = badge
-        badgeCorner:Clone().Parent = avatar
-        task.spawn(function()
-            for attempt = 1, 3 do
-                if not avatar.Parent then return end
-                local ok, image, ready = pcall(Players.GetUserThumbnailAsync, Players,
-                    LocalPlayer.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420)
-                if not avatar.Parent then return end
-                if ok and type(image) == "string" and image ~= "" then
-                    avatar.Image = image
-                    if ready then return end
+        local portraitWorld = Instance.new("WorldModel")
+        portraitWorld.Parent = avatar
+        local portraitCamera = Instance.new("Camera")
+        portraitCamera.FieldOfView = 32
+        portraitCamera.Parent = avatar
+        avatar.CurrentCamera = portraitCamera
+        local portraitGeneration = 0
+
+        local function clonePortraitPart(source)
+            local archivable = source.Archivable
+            source.Archivable = true
+            local ok, copy = pcall(source.Clone, source)
+            source.Archivable = archivable
+            if not ok or not copy then return end
+            for _, object in ipairs(copy:GetDescendants()) do
+                if object:IsA("LuaSourceContainer") or object:IsA("JointInstance") or object:IsA("Constraint") then
+                    object:Destroy()
                 end
-                if attempt < 3 then task.wait(1) end
             end
-        end)
+            copy.Anchored = true
+            copy.CanCollide, copy.CanTouch, copy.CanQuery = false, false, false
+            copy.LocalTransparencyModifier = 0
+            copy.Transparency = 0
+            return copy
+        end
+
+        local function updatePortrait(character)
+            portraitGeneration += 1
+            local token = portraitGeneration
+            task.spawn(function()
+                local head = character and character:WaitForChild("Head", 10)
+                if not head or not head:IsA("BasePart") or token ~= portraitGeneration
+                    or LocalPlayer.Character ~= character or not avatar.Parent then return end
+                local copy = clonePortraitPart(head)
+                if not copy then return end
+                portraitWorld:ClearAllChildren()
+                copy.CFrame = CFrame.new()
+                copy.Parent = portraitWorld
+                for _, accessory in ipairs(character:GetChildren()) do
+                    if accessory:IsA("Accessory") then
+                        local handle = accessory:FindFirstChild("Handle")
+                        local weld = handle and handle:FindFirstChild("AccessoryWeld")
+                        local attached = weld and (weld.Part0 == head or weld.Part1 == head)
+                        if handle and not attached then
+                            for _, attachment in ipairs(handle:GetChildren()) do
+                                if attachment:IsA("Attachment") and head:FindFirstChild(attachment.Name) then
+                                    attached = true
+                                    break
+                                end
+                            end
+                        end
+                        if handle and handle:IsA("BasePart") and attached then
+                            local hair = clonePortraitPart(handle)
+                            if hair then
+                                hair.CFrame = head.CFrame:ToObjectSpace(handle.CFrame)
+                                hair.Parent = portraitWorld
+                            end
+                        end
+                    end
+                end
+                local distance = math.max(copy.Size.X, copy.Size.Y) * 2.2
+                local focus = Vector3.new(0, copy.Size.Y * 0.1, 0)
+                portraitCamera.CFrame = CFrame.lookAt(focus + Vector3.new(0, 0, -distance), focus)
+            end)
+        end
+        updatePortrait(LocalPlayer.Character)
+        TrackGuiConnection(LocalPlayer.CharacterAdded:Connect(updatePortrait))
+        TrackGuiConnection(LocalPlayer.CharacterAppearanceLoaded:Connect(updatePortrait))
+        TrackGuiConnection(avatar.Destroying:Connect(function() portraitGeneration += 1 end))
 
         local username = Instance.new("TextLabel")
         username.Name = "PlayerUsername"
