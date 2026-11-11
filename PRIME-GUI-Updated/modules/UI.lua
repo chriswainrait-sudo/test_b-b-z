@@ -42,15 +42,7 @@ GuiParent = GetGuiParent()
 if not GuiParent then return end
 
 function IsMobileDevice()
-    local success, platform = pcall(function()
-        return userInputService:GetPlatform()
-    end)
-
-    if success then
-        return platform == Enum.Platform.Android or platform == Enum.Platform.IOS
-    end
-
-    return userInputService.TouchEnabled and not userInputService.KeyboardEnabled
+    return userInputService.TouchEnabled and not userInputService.MouseEnabled
 end
 
 IS_MOBILE = IsMobileDevice()
@@ -3856,6 +3848,8 @@ function NexusUI:CreateWindow(options)
     screenGui.Name = "NexusBasketballZeroUI"
     screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     screenGui.ResetOnSpawn = false
+    screenGui:SetAttribute("CompactMinimizeOnPC", true)
+    local useCompactRestore = IS_MOBILE or screenGui:GetAttribute("CompactMinimizeOnPC") == true
     screenGui.Parent = GuiParent
     attachTextStyler(screenGui)
 
@@ -4323,19 +4317,20 @@ function NexusUI:CreateWindow(options)
     end
 
     local mobileRestoreFrame, mobileFoldTween
-    local compactSize = UDim2.fromOffset(174, 38)
+    local savedCompactPosition
+    local compactSize = UDim2.fromOffset(64, 34)
 
     local function compactPosition(position)
         local bounds = restoreGui.AbsoluteSize
         if bounds.X <= 0 or bounds.Y <= 0 then return position end
         return UDim2.fromOffset(
-            math.clamp(position.X.Offset, 8, math.max(8, bounds.X - compactSize.X.Offset - 8)),
-            math.clamp(position.Y.Offset, 8, math.max(8, bounds.Y - compactSize.Y.Offset - 8))
+            math.clamp(position.X.Scale * bounds.X + position.X.Offset, 0, math.max(0, bounds.X - compactSize.X.Offset)),
+            math.clamp(position.Y.Scale * bounds.Y + position.Y.Offset, 0, math.max(0, bounds.Y - compactSize.Y.Offset))
         )
     end
 
     local function createRestoreGui()
-        if not SHOW_RESTORE_BUTTON then
+        if not SHOW_RESTORE_BUTTON and not useCompactRestore then
             return nil
         end
 
@@ -4347,8 +4342,11 @@ function NexusUI:CreateWindow(options)
         restoreGui.Name = "NexusBasketballZeroUI_Restore"
         restoreGui.ResetOnSpawn = false
         restoreGui.IgnoreGuiInset = true
-        if IS_MOBILE then
-            restoreGui.IgnoreGuiInset = screenGui.IgnoreGuiInset
+        if useCompactRestore then
+            pcall(function()
+                restoreGui.ScreenInsets = Enum.ScreenInsets.None
+                restoreGui.ClipToDeviceSafeArea = false
+            end)
             restoreGui.DisplayOrder = screenGui.DisplayOrder + 1
         end
         restoreGui.Enabled = false
@@ -4364,32 +4362,41 @@ function NexusUI:CreateWindow(options)
         restoreFrame.Active = true
 
         local restoreButton
-        if IS_MOBILE then
+        if useCompactRestore then
             mobileRestoreFrame = restoreFrame
             restoreFrame.Name = "CompactWindow"
             restoreFrame.Size = compactSize
             restoreFrame.AnchorPoint = Vector2.zero
             restoreFrame.Position = UDim2.fromOffset(16, 48)
-            restoreFrame.BackgroundTransparency = 0.08
+            restoreFrame.BackgroundColor3 = mainFrame.BackgroundColor3
+            restoreFrame.BackgroundTransparency = mainFrame.BackgroundTransparency
             restoreFrame.ClipsDescendants = true
-            NexusUI:BindColor(restoreFrame, "BackgroundColor3", function() return COLOR_WINDOW end)
-            local corner = Instance.new("UICorner")
-            corner.CornerRadius = UDim.new(0, 7)
-            corner.Parent = restoreFrame
-            local stroke = Instance.new("UIStroke")
-            stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            NexusUI:BindColor(stroke, "Color", function() return COLOR_BORDER end)
-            stroke.Parent = restoreFrame
+            windowGradient().Parent = restoreFrame
+            mainCorner:Clone().Parent = restoreFrame
+            mainStroke:Clone().Parent = restoreFrame
+            createImageBackground(restoreFrame)
+
+            local logo = makeLogo(restoreFrame, 24)
+            logo.Name = "CompactSpinningLogo"
+            logo.AnchorPoint = Vector2.new(0.5, 0.5)
+            logo.Position = UDim2.fromScale(0.5, 0.5)
+            logo.ZIndex = 4
+            logo.Active = false
+            local spin = TweenService:Create(logo, TweenInfo.new(8, Enum.EasingStyle.Linear,
+                Enum.EasingDirection.InOut, -1), {Rotation = 360})
+            spin:Play()
+            track(restoreGui:GetPropertyChangedSignal("Enabled"):Connect(function()
+                if restoreGui.Enabled then spin:Play() else spin:Pause() end
+            end))
+            track(restoreFrame.Destroying:Connect(function() spin:Cancel() end))
 
             restoreButton = Instance.new("TextButton")
             restoreButton.Name = "ExpandWindow"
             restoreButton.Size = UDim2.fromScale(1, 1)
             restoreButton.BackgroundTransparency = 1
             restoreButton.AutoButtonColor = false
-            restoreButton.Text = "L I Q U I D A T I O N    +"
-            restoreButton.Font = Enum.Font.GothamMedium
-            restoreButton.TextSize = 12
-            NexusUI:BindColor(restoreButton, "TextColor3", function() return COLOR_TEXT end)
+            restoreButton.Text = ""
+            restoreButton.ZIndex = 5
             restoreButton.Parent = restoreFrame
         else
             restoreButton = makeLogo(restoreFrame,48)
@@ -4405,14 +4412,14 @@ function NexusUI:CreateWindow(options)
         local restoreDragThreshold = 8
 
         local function beginRestoreInteraction(input)
-            if IS_MOBILE and (mobileFoldTween or restoreDragging) then return end
+            if useCompactRestore and (mobileFoldTween or restoreDragging) then return end
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 restoreDragging = true
                 restoreDragMoved = false
                 restoreStartPos = restoreFrame.Position
                 restoreStartInputPos = input.Position
                 restoreInputType = input.UserInputType
-                if IS_MOBILE and restoreInputType == Enum.UserInputType.Touch then restoreTouch = input end
+                if useCompactRestore and restoreInputType == Enum.UserInputType.Touch then restoreTouch = input end
             end
         end
 
@@ -4439,7 +4446,8 @@ function NexusUI:CreateWindow(options)
                 restoreStartPos.Y.Scale,
                 restoreStartPos.Y.Offset + delta.Y
             )
-            restoreFrame.Position = IS_MOBILE and compactPosition(position) or position
+            restoreFrame.Position = useCompactRestore and compactPosition(position) or position
+            if useCompactRestore then savedCompactPosition = restoreFrame.Position end
         end
 
         local function endRestoreInteraction(input)
@@ -4645,47 +4653,50 @@ function NexusUI:CreateWindow(options)
 
     local function setMobileVisible(visible)
         local wasVisible = mainFrame.Visible and screenGui.Enabled
-        if visible and wasVisible then return end
-        if not visible and not wasVisible and mobileFoldTween == nil then
-            createRestoreGui().Enabled = true
+        local gui = createRestoreGui()
+        local frame = mobileRestoreFrame
+        if not gui or not frame then return end
+        if visible then
+            cancelMobileFold()
+            local windowScale = mainFrame:FindFirstChild("NexusWindowScale")
+            if windowScale then windowScale.Scale = targetScale end
+            mainFrame.BackgroundTransparency = MAIN_WINDOW_TRANSPARENCY
+            screenGui.Enabled = true
+            mainFrame.Visible = true
+            gui.Enabled = false
+            frame.Size = compactSize
+            if savedCompactPosition then frame.Position = compactPosition(savedCompactPosition) end
+            return
+        end
+        if not wasVisible and mobileFoldTween == nil then
+            if savedCompactPosition then frame.Position = compactPosition(savedCompactPosition) end
+            gui.Enabled = true
             return
         end
 
-        createRestoreGui().Enabled = true
-        local frame = mobileRestoreFrame
         cancelMobileFold()
-        local fullPosition = mainFrame.Position
-        local fullSize = UDim2.fromOffset(mainFrame.Size.X.Offset * targetScale, mainFrame.Size.Y.Offset * targetScale)
-        local smallPosition = compactPosition(fullPosition)
-        if not visible and wasVisible then
-            frame.Position = fullPosition
-            frame.Size = fullSize
-            mainFrame.Visible = false
-        end
+        local origin = mainFrame.AbsolutePosition - gui.AbsolutePosition
+        local fullPosition = UDim2.fromOffset(origin.X, origin.Y)
+        local smallPosition = compactPosition(savedCompactPosition or fullPosition)
+        savedCompactPosition = smallPosition
+        frame.Position = fullPosition
+        frame.Size = UDim2.fromOffset(mainFrame.AbsoluteSize.X, mainFrame.AbsoluteSize.Y)
+        gui.Enabled = true
+        mainFrame.Visible = false
 
         local tween = TweenService:Create(frame, TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-            Size = visible and fullSize or compactSize,
-            Position = visible and fullPosition or smallPosition,
+            Size = compactSize,
+            Position = smallPosition,
         })
         mobileFoldTween = tween
-        tween.Completed:Once(function(state)
-            if mobileFoldTween ~= tween then return end
-            mobileFoldTween = nil
-            if state ~= Enum.PlaybackState.Completed or not mainFrame.Parent then return end
-            if visible then
-                screenGui.Enabled = true
-                mainFrame.Visible = true
-                restoreGui.Enabled = false
-                frame.Size = compactSize
-                frame.Position = smallPosition
-                animateWindowIn()
-            end
+        tween.Completed:Once(function()
+            if mobileFoldTween == tween then mobileFoldTween = nil end
         end)
         tween:Play()
     end
 
     setVisible = function(visible)
-        if IS_MOBILE then
+        if useCompactRestore then
             setMobileVisible(visible)
             return
         end
@@ -4712,7 +4723,7 @@ function NexusUI:CreateWindow(options)
 
     local function setCollapsed(value)
         isCollapsed = value
-        mainFrame.Visible = not value
+        setVisible(not value)
     end
 
     local dragHandle = topBar
@@ -5987,11 +5998,7 @@ function NexusUI:CreateWindow(options)
     end
 
     function window:ToggleCollapsed()
-        if IS_MOBILE then
-            setVisible(not mainFrame.Visible)
-            return
-        end
-        setCollapsed(not isCollapsed)
+        setCollapsed(mainFrame.Visible)
     end
 
     function window:SetVisible(visible)
@@ -6029,7 +6036,7 @@ function NexusUI:CreateWindow(options)
     end))
 
     local function updateRestoreVisibility()
-        if not SHOW_RESTORE_BUTTON then
+        if not SHOW_RESTORE_BUTTON and not useCompactRestore then
             if restoreGui then
                 restoreGui:Destroy()
                 restoreGui = nil
