@@ -3856,6 +3856,8 @@ function NexusUI:CreateWindow(options)
     screenGui.Name = "NexusBasketballZeroUI"
     screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     screenGui.ResetOnSpawn = false
+    screenGui:SetAttribute("CompactMinimizeOnPC", true)
+    local compactMinimize = IS_MOBILE or screenGui:GetAttribute("CompactMinimizeOnPC") == true
     screenGui.Parent = GuiParent
     attachTextStyler(screenGui)
 
@@ -4347,7 +4349,7 @@ function NexusUI:CreateWindow(options)
         restoreGui.Name = "NexusBasketballZeroUI_Restore"
         restoreGui.ResetOnSpawn = false
         restoreGui.IgnoreGuiInset = true
-        if IS_MOBILE then
+        if compactMinimize then
             restoreGui.IgnoreGuiInset = screenGui.IgnoreGuiInset
             restoreGui.DisplayOrder = screenGui.DisplayOrder + 1
         end
@@ -4364,7 +4366,7 @@ function NexusUI:CreateWindow(options)
         restoreFrame.Active = true
 
         local restoreButton
-        if IS_MOBILE then
+        if compactMinimize then
             mobileRestoreFrame = restoreFrame
             restoreFrame.Name = "CompactWindow"
             restoreFrame.Size = compactSize
@@ -4405,14 +4407,14 @@ function NexusUI:CreateWindow(options)
         local restoreDragThreshold = 8
 
         local function beginRestoreInteraction(input)
-            if IS_MOBILE and (mobileFoldTween or restoreDragging) then return end
+            if compactMinimize and (mobileFoldTween or restoreDragging) then return end
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 restoreDragging = true
                 restoreDragMoved = false
                 restoreStartPos = restoreFrame.Position
                 restoreStartInputPos = input.Position
                 restoreInputType = input.UserInputType
-                if IS_MOBILE and restoreInputType == Enum.UserInputType.Touch then restoreTouch = input end
+                if compactMinimize and restoreInputType == Enum.UserInputType.Touch then restoreTouch = input end
             end
         end
 
@@ -4439,7 +4441,7 @@ function NexusUI:CreateWindow(options)
                 restoreStartPos.Y.Scale,
                 restoreStartPos.Y.Offset + delta.Y
             )
-            restoreFrame.Position = IS_MOBILE and compactPosition(position) or position
+            restoreFrame.Position = compactMinimize and compactPosition(position) or position
         end
 
         local function endRestoreInteraction(input)
@@ -4685,7 +4687,7 @@ function NexusUI:CreateWindow(options)
     end
 
     setVisible = function(visible)
-        if IS_MOBILE then
+        if compactMinimize then
             setMobileVisible(visible)
             return
         end
@@ -4712,7 +4714,8 @@ function NexusUI:CreateWindow(options)
 
     local function setCollapsed(value)
         isCollapsed = value
-        mainFrame.Visible = not value
+        if compactMinimize then setVisible(not value)
+        else mainFrame.Visible = not value end
     end
 
     local dragHandle = topBar
@@ -5987,7 +5990,7 @@ function NexusUI:CreateWindow(options)
     end
 
     function window:ToggleCollapsed()
-        if IS_MOBILE then
+        if compactMinimize then
             setVisible(not mainFrame.Visible)
             return
         end
@@ -6053,6 +6056,17 @@ function NexusUI:CreateWindow(options)
 
     track(screenGui:GetPropertyChangedSignal("Enabled"):Connect(function()
         updateRestoreVisibility()
+    end))
+
+    track(screenGui:GetAttributeChangedSignal("CompactMinimizeOnPC"):Connect(function()
+        local nextMode = IS_MOBILE or screenGui:GetAttribute("CompactMinimizeOnPC") == true
+        if compactMinimize == nextMode then return end
+        local hidden = not mainFrame.Visible or not screenGui.Enabled
+        cancelMobileFold()
+        compactMinimize = nextMode
+        if restoreGui then restoreGui:Destroy(); restoreGui = nil end
+        mobileRestoreFrame = nil
+        if hidden then setVisible(false) else updateRestoreVisibility() end
     end))
 
     if not isVisibleByDefault then
