@@ -1618,6 +1618,13 @@ end
         local hoop = side and side:FindFirstChild("Hoop")
         return hoop and hoop:IsA("BasePart") and hoop or nil
     end
+    local silentAimRange = 70
+    local function silentAimApplies(root, hoop)
+        if not config.SilentAimShot or not root or not hoop then return false end
+        local delta = hoop.Position - root.Position
+        return delta.X * delta.X + delta.Z * delta.Z <= silentAimRange * silentAimRange
+    end
+
     local function opponent(player)
         return player ~= LocalPlayer and LocalPlayer.Team and player.Team
             and LocalPlayer.Team ~= player.Team and LocalPlayer.Team.Name ~= "Visitor"
@@ -2371,7 +2378,7 @@ end
         local handBall = anims and anims:FindFirstChild("BALL")
         local origin = handBall and handBall:IsA("BasePart") and handBall.Position or ball.Position
         local target = hoop.Position
-        if not ((config.PerfectShot or config.RagePerfectShot or config.BallExtraManipulation) or config.SilentAimShot) then
+        if not ((config.PerfectShot or config.RagePerfectShot or config.BallExtraManipulation) or silentAimApplies(root, hoop)) then
             local facing = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
             if facing.Magnitude < 0.001 then hideTrajectory(); return end
             local distance = Vector3.new(target.X - origin.X, 0, target.Z - origin.Z).Magnitude
@@ -2494,7 +2501,7 @@ end
                 and not s.Ability and not s.PumpFake and (s.Shooting or s.AimAssist) then
                 local char, root = localParts()
                 local hoop, ball = targetHoop(), GetCurrentBall()
-                if root and hoop and (config.SilentAimShot or (config.PerfectShot or config.RagePerfectShot or config.BallExtraManipulation)) then
+                if root and hoop and (silentAimApplies(root, hoop) or (config.PerfectShot or config.RagePerfectShot or config.BallExtraManipulation)) then
                     local d = hoop.Position - root.Position
                     local dir = Vector2.new(d.X, d.Z)
                     if dir.Magnitude > 0.01 then args[1] = dir.Unit end
@@ -2700,6 +2707,15 @@ end
         Tabs.Main:AddToggle(key, {Title = title, Description = description, ShowDescription = key == "PerfectShot",
             DescriptionColor = key == "PerfectShot" and Color3.fromRGB(255, 70, 70) or nil, Default = false,
             Callback = function(value) setFeature(key, value) end})
+        if key == "SilentAimShot" then
+            Tabs.Main:AddSlider("SilentAimRange", {
+                Title = "Silent Aim Range", Description = "Maximum distance from the hoop",
+                Default = 70, Min = 15, Max = 200, Step = 1, Rounding = 0,
+                Callback = function(value)
+                    if type(value) == "number" and value == value then silentAimRange = math.clamp(value, 15, 200) end
+                end,
+            })
+        end
     end
     if IS_PREMIUM_USER == true then
         Tabs.Premium:AddToggle("BallExtraManipulation", {Title = "Ball Extra Manipulation", Default = false,
