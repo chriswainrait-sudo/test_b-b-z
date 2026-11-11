@@ -217,7 +217,7 @@ local function createSnowfall(mainFrame, innerClip, screenGui)
     end
 
     local function makeSnowflake()
-        local size = random:NextInteger(15, 22)
+        local size = random:NextInteger(7, 14)
         local gui = Instance.new("Frame")
         gui.Name = "Snowflake"
         gui.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -233,7 +233,7 @@ local function createSnowfall(mainFrame, innerClip, screenGui)
             local stroke = Instance.new("Frame")
             stroke.AnchorPoint = Vector2.new(0.5, 0.5)
             stroke.Position = UDim2.fromScale((a.X + b.X) / 2, (a.Y + b.Y) / 2)
-            stroke.Size = UDim2.new(delta.Magnitude, 0, 0, 1.25)
+            stroke.Size = UDim2.new(delta.Magnitude, 0, 0, size >= 11 and 1 or 0.8)
             stroke.Rotation = math.deg(math.atan2(delta.Y, delta.X))
             stroke.BackgroundColor3 = color
             stroke.BackgroundTransparency = 0.12
@@ -258,10 +258,11 @@ local function createSnowfall(mainFrame, innerClip, screenGui)
         local flake = {
             Gui = gui, Pieces = pieces, Size = size,
             X = random:NextNumber(0, 1), Y = random:NextNumber(0, 1),
-            Speed = random:NextNumber(14, 31), Phase = random:NextNumber(0, math.pi * 2),
+            Speed = random:NextNumber(21, 40), Phase = random:NextNumber(0, math.pi * 2),
             Sway = random:NextNumber(0.008, 0.025), Rotation = random:NextNumber(0, 360),
-            Spin = random:NextNumber(-12, 12), Opacity = random:NextNumber(0.08, 0.22),
+            Spin = random:NextNumber(-12, 12), Opacity = random:NextNumber(0.15, 0.65),
         }
+        for _, piece in ipairs(pieces) do piece.BackgroundTransparency = flake.Opacity end
         gui.Position = UDim2.fromScale(flake.X, flake.Y)
         gui.Rotation = flake.Rotation
         return flake
