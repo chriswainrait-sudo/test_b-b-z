@@ -4108,12 +4108,87 @@ function NexusUI:CreateWindow(options)
     })
     sh.Offset = Vector2.new(-1,0)
     sh.Parent = logoSubtitle
-    TweenService:Create(sh,TweenInfo.new(2.6,Enum.EasingStyle.Linear,Enum.EasingDirection.InOut,-1),{Offset=Vector2.new(1,0)}):Play()
+    do
+        local dock = Instance.new("Frame")
+        dock.Name = "PlayerAccountDock"
+        dock.AnchorPoint = Vector2.new(0, 0)
+        dock.Position = UDim2.new(0, 0, 1, 10)
+        dock.Size = UDim2.fromOffset(252, 66)
+        dock.BackgroundColor3 = mainFrame.BackgroundColor3
+        dock.BackgroundTransparency = mainFrame.BackgroundTransparency
+        dock.BorderSizePixel = 0
+        dock.ClipsDescendants = true
+        dock.ZIndex = 5
+        dock.Visible = mainFrame.Visible
+        dock.Parent = mainFrame
+        windowGradient().Parent = dock
+        mainCorner:Clone().Parent = dock
+        mainStroke:Clone().Parent = dock
+        local artwork = createImageBackground(dock)
+        if artwork then artwork.ZIndex = 1 end
+
+        local content = Instance.new("Frame")
+        content.Name = "AccountContent"
+        content.Size = UDim2.fromScale(1, 1)
+        content.BackgroundTransparency = 1
+        content.ZIndex = 6
+        content.Parent = dock
+
+        local badge = Instance.new("Frame")
+        badge.Name = "AccountBadge"
+        badge.Size = UDim2.fromOffset(40, 40)
+        badge.Position = UDim2.fromOffset(12, 13)
+        badge.BorderSizePixel = 0
+        badge.BackgroundTransparency = 0.45
+        badge.ZIndex = 6
+        NexusUI:BindColor(badge, "BackgroundColor3", function() return COLOR_CONTROL end)
+        badge.Parent = content
+        local badgeCorner = Instance.new("UICorner")
+        badgeCorner.CornerRadius = UDim.new(0, 8)
+        badgeCorner.Parent = badge
+        local badgeLogo = makeLogo(badge, 28)
+        badgeLogo.AnchorPoint = Vector2.new(0.5, 0.5)
+        badgeLogo.Position = UDim2.fromScale(0.5, 0.5)
+        badgeLogo.ZIndex = 7
+
+        local username = Instance.new("TextLabel")
+        username.Name = "PlayerUsername"
+        username.BackgroundTransparency = 1
+        username.Position = UDim2.fromOffset(64, 13)
+        username.Size = UDim2.new(1, -78, 0, 20)
+        username.Text = "@" .. LocalPlayer.Name
+        username.FontFace = Font.new(FONT_BODY, Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
+        username.TextSize = 13
+        username.TextXAlignment = Enum.TextXAlignment.Left
+        username.TextYAlignment = Enum.TextYAlignment.Center
+        username.TextTruncate = Enum.TextTruncate.AtEnd
+        username.ZIndex = 7
+        NexusUI:BindColor(username, "TextColor3", function() return COLOR_TEXT end)
+        username.Parent = content
+
+        logoSubtitle.AutomaticSize = Enum.AutomaticSize.None
+        logoSubtitle.Position = UDim2.fromOffset(64, 35)
+        logoSubtitle.Size = UDim2.new(1, -78, 0, 18)
+        logoSubtitle.Text = isPremiumUser and "Premium" or "Freemium"
+        logoSubtitle.TextSize = 11
+        logoSubtitle.ZIndex = 7
+        logoSubtitle.Parent = content
+        local tierShine = TweenService:Create(sh, TweenInfo.new(2.6, Enum.EasingStyle.Linear,
+            Enum.EasingDirection.InOut, -1), {Offset = Vector2.new(1, 0)})
+        tierShine:Play()
+
+        TrackGuiConnection(mainFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+            dock.Visible = mainFrame.Visible
+        end))
+        TrackGuiConnection(screenGui.Destroying:Connect(function()
+            tierShine:Cancel()
+        end))
+    end
 
     local tabStrip = Instance.new("ScrollingFrame")
     tabStrip.Name = "TabStrip"
-    tabStrip.Size = UDim2.new(1, -100, 1, 0)
-    tabStrip.Position = UDim2.new(0, 90, 0, 0)
+    tabStrip.Size = UDim2.new(1, -58, 1, 0)
+    tabStrip.Position = UDim2.new(0, 50, 0, 0)
     tabStrip.BackgroundTransparency = 1
     tabStrip.ClipsDescendants = true
     tabStrip.ZIndex = 3
@@ -4134,7 +4209,7 @@ function NexusUI:CreateWindow(options)
         local function updateMobileTabStripBounds()
             if not tabStrip or not tabStrip.Parent then return end
             local measuredLogoWidth = math.floor(logoContainer.AbsoluteSize.X / math.max(fit.Scale, 0.1) + 0.5)
-            local leftInset = math.max(138, measuredLogoWidth + 26)
+            local leftInset = math.max(50, measuredLogoWidth + 26)
             local rightInset = 8
             tabStrip.Position = UDim2.new(0, leftInset, 0, 0)
             tabStrip.Size = UDim2.new(1, -(leftInset + rightInset), 1, 0)
