@@ -150,6 +150,9 @@ local function createImageBackground(parent)
     artwork.ScaleType = Enum.ScaleType.Stretch
     artwork.Active, artwork.Selectable, artwork.ZIndex = false, false, 2
     artwork.Parent = parent
+    local artworkCorner = Instance.new("UICorner")
+    artworkCorner.CornerRadius = UDim.new(0, 10)
+    artworkCorner.Parent = artwork
     task.defer(function()
         local customAsset = getcustomasset or getsynasset
         if type(customAsset) ~= "function" or type(writefile) ~= "function" then return end
@@ -3909,7 +3912,7 @@ function NexusUI:CreateWindow(options)
 
     local mainCorner = Instance.new("UICorner")
     mainCorner.Name = "NexusMainCorner"
-    mainCorner.CornerRadius = UDim.new(0, 0)
+    mainCorner.CornerRadius = UDim.new(0, 10)
     mainCorner.Parent = mainFrame
 
     local mainStroke = Instance.new("UIStroke")
@@ -3918,7 +3921,7 @@ function NexusUI:CreateWindow(options)
     mainStroke.Color = Color3.new(1, 1, 1)
     mainStroke.Transparency = 0.1
     mainStroke.Thickness = 1.2
-    mainStroke.LineJoinMode = Enum.LineJoinMode.Miter
+    mainStroke.LineJoinMode = Enum.LineJoinMode.Round
     mainStroke.Parent = mainFrame
     borderGradient().Parent = mainStroke
 
@@ -3931,7 +3934,7 @@ function NexusUI:CreateWindow(options)
     innerClip.Parent = mainFrame
 
     local innerCorner = Instance.new("UICorner")
-    innerCorner.CornerRadius = UDim.new(0, 0)
+    innerCorner.CornerRadius = UDim.new(0, 10)
     innerCorner.Parent = innerClip
 
     -- Soft light sheen across the top-left, like a glass panel.
@@ -3942,6 +3945,9 @@ function NexusUI:CreateWindow(options)
     sheen.BorderSizePixel = 0
     sheen.ZIndex = 1
     sheen.Parent = innerClip
+    local sheenCorner = Instance.new("UICorner")
+    sheenCorner.CornerRadius = UDim.new(0, 10)
+    sheenCorner.Parent = sheen
     local sheenGradient = Instance.new("UIGradient")
     sheenGradient.Rotation = 35
     sheenGradient.Transparency = NumberSequence.new({
@@ -4006,7 +4012,7 @@ function NexusUI:CreateWindow(options)
     topBar.Parent = innerClip
 
     local topBarCorner = Instance.new("UICorner")
-    topBarCorner.CornerRadius = UDim.new(0, 0)
+    topBarCorner.CornerRadius = UDim.new(0, 10)
     topBarCorner.Parent = topBar
 
     -- Hairline divider that fades out toward both edges.
@@ -5196,6 +5202,17 @@ function NexusUI:CreateWindow(options)
             toggleFrame.LayoutOrder = #controls + 1
             toggleFrame.BorderSizePixel = 0
             toggleFrame.Parent = getControlParent()
+            local rowCorner = Instance.new("UICorner")
+            rowCorner.CornerRadius = UDim.new(0, 6)
+            rowCorner.Parent = toggleFrame
+            local rowStroke = Instance.new("UIStroke")
+            rowStroke.Name = "ToggleOutline"
+            rowStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+            rowStroke.Thickness = 1
+            rowStroke.Transparency = 0.35
+            NexusUI:BindColor(rowStroke, "Color", function() return COLOR_TEXT_DIM end)
+            rowStroke.Parent = toggleFrame
+
 
             -- ON / OFF pill switch on the right side of the row.
             local SWITCH_W = IS_MOBILE and 50 or 44
@@ -5209,7 +5226,7 @@ function NexusUI:CreateWindow(options)
             switch.Name = "Switch"
             switch.AnchorPoint = Vector2.new(1, 0.5)
             switch.Size = UDim2.fromOffset(SWITCH_W, SWITCH_H)
-            switch.Position = showDescription and UDim2.new(1, -2, 0, rowHeight / 2) or UDim2.new(1, -2, 0.5, 0)
+            switch.Position = showDescription and UDim2.new(1, -8, 0, rowHeight / 2) or UDim2.new(1, -8, 0.5, 0)
             switch.BackgroundColor3 = SWITCH_OFF
             switch.BorderSizePixel = 0
             switch.Parent = toggleFrame
@@ -5253,9 +5270,9 @@ function NexusUI:CreateWindow(options)
             knobCorner.Parent = knob
 
             local label = Instance.new("TextLabel")
-            label.Size = showDescription and UDim2.new(1, -(SWITCH_W + 10), 0, rowHeight)
-                or UDim2.new(1, -(SWITCH_W + 10), 1, 0)
-            label.Position = UDim2.new(0, 0, 0, 0)
+            label.Size = showDescription and UDim2.new(1, -(SWITCH_W + 24), 0, rowHeight)
+                or UDim2.new(1, -(SWITCH_W + 24), 1, 0)
+            label.Position = UDim2.new(0, 8, 0, 0)
             label.BackgroundTransparency = 1
             label.Text = data and data.Title or id
             NexusUI:BindColor(label, "TextColor3", function() return COLOR_TEXT end)
