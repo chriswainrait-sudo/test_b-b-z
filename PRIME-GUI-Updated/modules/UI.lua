@@ -47,7 +47,7 @@ end
 
 IS_MOBILE = IsMobileDevice()
 SHOW_RESTORE_BUTTON = IS_MOBILE or SHOW_LOGO_ON_PC
-local DESKTOP_WINDOW_SIZE = UDim2.fromOffset(920, 520)
+local DESKTOP_WINDOW_SIZE = UDim2.fromOffset(840, 480)
 
 NexusUI = {
     Options = {},
