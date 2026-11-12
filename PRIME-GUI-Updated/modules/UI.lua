@@ -4098,14 +4098,19 @@ function NexusUI:CreateWindow(options)
     logoSubtitle.ZIndex = 3
     logoSubtitle.Parent = logoContainer
     local sh = Instance.new("UIGradient")
-    local tierBase = isPremiumUser and Color3.fromRGB(210, 145, 35) or Color3.fromRGB(35, 175, 90)
-    local tierLight = isPremiumUser and Color3.fromRGB(255, 230, 142) or Color3.fromRGB(155, 255, 190)
-    sh.Color = ColorSequence.new({
-        ColorSequenceKeypoint.new(0, tierBase),
-        ColorSequenceKeypoint.new(0.35, tierLight),
-        ColorSequenceKeypoint.new(0.5, isPremiumUser and Color3.fromRGB(255, 248, 211) or Color3.fromRGB(210, 255, 225)),
-        ColorSequenceKeypoint.new(0.65, tierLight),
-        ColorSequenceKeypoint.new(1, tierBase)
+    sh.Color = isPremiumUser and ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(210, 145, 35)),
+        ColorSequenceKeypoint.new(0.35, Color3.fromRGB(255, 230, 142)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 248, 211)),
+        ColorSequenceKeypoint.new(0.65, Color3.fromRGB(255, 230, 142)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(210, 145, 35))
+    }) or ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(157, 195, 255)),
+        ColorSequenceKeypoint.new(0.2, Color3.fromRGB(194, 169, 255)),
+        ColorSequenceKeypoint.new(0.4, Color3.fromRGB(255, 192, 230)),
+        ColorSequenceKeypoint.new(0.6, Color3.fromRGB(236, 247, 255)),
+        ColorSequenceKeypoint.new(0.8, Color3.fromRGB(165, 232, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(157, 195, 255))
     })
     sh.Offset = Vector2.new(-1,0)
     sh.Parent = logoSubtitle
@@ -4242,6 +4247,7 @@ function NexusUI:CreateWindow(options)
         local tierShine = TweenService:Create(sh, TweenInfo.new(2.6, Enum.EasingStyle.Linear,
             Enum.EasingDirection.InOut, -1), {Offset = Vector2.new(1, 0)})
         tierShine:Play()
+        logoSubtitle.TextStrokeTransparency = 1
 
         TrackGuiConnection(mainFrame:GetPropertyChangedSignal("Visible"):Connect(function()
             dock.Visible = mainFrame.Visible
