@@ -4161,14 +4161,14 @@ function NexusUI:CreateWindow(options)
 
     do
         tabStrip.BorderSizePixel = 0
-        tabStrip.CanvasSize = UDim2.new(0, 0, 0, 0)
-        tabStrip.AutomaticCanvasSize = Enum.AutomaticSize.X
+        tabStrip.CanvasSize = UDim2.new(1, 0, 1, 0)
+        tabStrip.AutomaticCanvasSize = Enum.AutomaticSize.None
         tabStrip.ScrollingDirection = Enum.ScrollingDirection.X
-        tabStrip.ScrollingEnabled = true
-        tabStrip.ScrollBarThickness = 2
+        tabStrip.ScrollingEnabled = false
+        tabStrip.ScrollBarThickness = 0
         NexusUI:BindColor(tabStrip, "ScrollBarImageColor3", function() return COLOR_BORDER end)
         tabStrip.ScrollBarImageTransparency = 0.2
-        tabStrip.ElasticBehavior = Enum.ElasticBehavior.WhenScrollable
+        tabStrip.ElasticBehavior = Enum.ElasticBehavior.Never
 
         local function updateMobileTabStripBounds()
             if not tabStrip or not tabStrip.Parent then return end
@@ -4191,24 +4191,14 @@ function NexusUI:CreateWindow(options)
     tabStripLayout.SortOrder = Enum.SortOrder.LayoutOrder
     tabStripLayout.Parent = tabStrip
 
-    local mobileTabHintHeight = IS_MOBILE and 14 or 0
-    if IS_MOBILE then
-        local tabSwipeHint = Instance.new("TextLabel")
-        tabSwipeHint.Name = "TabSwipeHint"
-        tabSwipeHint.Size = UDim2.new(1, -16, 0, mobileTabHintHeight)
-        tabSwipeHint.Position = UDim2.new(0, 8, 0, topBarHeight + 42)
-        tabSwipeHint.BackgroundTransparency = 1
-        tabSwipeHint.Text = "Swipe tabs left / right  ↔"
-        NexusUI:BindColor(tabSwipeHint, "TextColor3", function() return COLOR_TEXT_DIM end)
-        tabSwipeHint.FontFace = Font.new(FONT_BODY, Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-        tabSwipeHint.TextSize = 9
-        tabSwipeHint.TextXAlignment = Enum.TextXAlignment.Right
-        tabSwipeHint.TextYAlignment = Enum.TextYAlignment.Center
-        tabSwipeHint.ZIndex = 4
-        tabSwipeHint.Parent = innerClip
-    end
+    local mobileTabHintHeight = 0
 
     local window = {}
+    function window:IsPointOverWindow(x, y)
+        if not screenGui.Enabled or not mainFrame.Visible then return false end
+        local p, s = mainFrame.AbsolutePosition, mainFrame.AbsoluteSize
+        return x >= p.X and x <= p.X + s.X and y >= p.Y and y <= p.Y + s.Y
+    end
     --[=[
     local snowfall = createSnowfall(mainFrame, innerClip, screenGui)
     function window:SetAutumnLeavesEnabled(value)
@@ -4785,6 +4775,20 @@ function NexusUI:CreateWindow(options)
     local tabs = {}
     local currentTab = nil
 
+    local function fitTabs()
+        local total = 0
+        for _, tab in ipairs(tabs) do
+            tab.weight = math.max(3, utf8.len(tab.label.Text) or #tab.label.Text) + 2
+            total += tab.weight
+        end
+        local spacing = math.max(0, #tabs - 1) * 2
+        for _, tab in ipairs(tabs) do
+            local share = tab.weight / total
+            tab.button.Size = UDim2.new(share, -spacing * share, 1, -8)
+        end
+    end
+
+
     local function selectTab(index)
         local tabEntry = tabs[index]
         if not tabEntry then return end
@@ -4823,15 +4827,18 @@ function NexusUI:CreateWindow(options)
     end
 
     function window:AddTab(tabData)
-        local right = tabData and tabData.Badge and 30 or 7
-        local tabButton = bind(new("TextButton", {Size = UDim2.new(0, 0, 1, -8), AutomaticSize = Enum.AutomaticSize.X, BackgroundTransparency = 1, Text = string.upper(tostring(tabData and tabData.Title or "Tab")), TextSize = 11, AutoButtonColor = false, LayoutOrder = #tabs + 1, ZIndex = 4}, tabStrip), "TextColor3", dimColor)
-        new("UIPadding", {PaddingLeft = UDim.new(0, 7), PaddingRight = UDim.new(0, right)}, tabButton)
+        local right = 4
+        local tabButton = bind(new("TextButton", {Size = UDim2.new(0, 0, 1, -8), AutomaticSize = Enum.AutomaticSize.None, BackgroundTransparency = 1, Text = string.upper(tostring(tabData and tabData.Title or "Tab")), TextSize = 11, TextScaled = true, TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd, AutoButtonColor = false, LayoutOrder = #tabs + 1, ZIndex = 4}, tabStrip), "TextColor3", dimColor)
+        tabButton:SetAttribute("KeepFont", true)
+        tabButton.FontFace = Font.new(FONT_BODY, Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
+        new("UITextSizeConstraint", {MinTextSize = 7, MaxTextSize = 11}, tabButton)
+        new("UIPadding", {PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, right)}, tabButton)
         local tabLabel = tabButton
         local tabUnderline = bind(new("Frame", {Size = UDim2.new(1, -8, 0, 2), Position = UDim2.new(0, 4, 1, 3), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 4}, tabButton), "BackgroundColor3", accentColor)
         local tabGlow = icon("glow", 0, 12, accentColor, tabUnderline)
         tabGlow.Size, tabGlow.ImageTransparency = UDim2.new(1, 0, 0, 12), 1
-        if right > 7 then
-            new("TextLabel", {Name = "TabBadge", Size = UDim2.fromOffset(26, 10), Position = UDim2.new(1, 2, 0.5, -11), BackgroundTransparency = 1, Text = tostring(tabData.Badge), TextColor3 = GOOD, FontFace = TEXT_FONT, TextSize = 7, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 5}, tabButton)
+        if tabData and tabData.Badge then
+            new("TextLabel", {Name = "TabBadge", Size = UDim2.fromOffset(24, 8), Position = UDim2.new(1, -24, 0, 0), BackgroundTransparency = 1, Text = tostring(tabData.Badge), TextColor3 = GOOD, FontFace = TEXT_FONT, TextSize = 7, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 5}, tabButton)
         end
         TrackGuiConnection(tabButton.MouseEnter:Connect(function() if tabUnderline.BackgroundTransparency == 1 then bind(tabButton, "TextColor3", textColor) end end))
         TrackGuiConnection(tabButton.MouseLeave:Connect(function() if tabUnderline.BackgroundTransparency == 1 then bind(tabButton, "TextColor3", dimColor) end end))
@@ -5434,6 +5441,8 @@ function NexusUI:CreateWindow(options)
         end
 
         table.insert(tabs, {button = tabButton, page = tabPage, label = tabLabel, underline = tabUnderline})
+        fitTabs()
+        TrackGuiConnection(tabButton:GetPropertyChangedSignal("Text"):Connect(fitTabs))
         if tabIndex == 1 then
             selectTab(1)
         end
