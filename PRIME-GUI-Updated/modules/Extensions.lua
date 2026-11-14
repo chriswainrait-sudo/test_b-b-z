@@ -1663,16 +1663,14 @@ do
     local alive, context, loading = true, nil, false
     local config = {SmartSteal = false, StealRange = 14, StealTiming = "Balanced", Genius = false,
         SoulCatch = false, CopyTarget = "Default", CopySlot = "Random", SpecialTarget = "Default",
-        SwitchTarget = "Default", AutoStyles = false, SpinType = "Normal", StopStyle = "Select a style"}
+        SwitchTarget = "Default"}
     local connections, hooks, targets, options = {}, {}, {}, {}
     local notices, circles = {}, setmetatable({}, {__mode = "k"})
     local steal = {Seen = setmetatable({}, {__mode = "k"}), Next = 0, Protected = 0, Exhausted = 0, Count = 0}
-    local spin, lastScan, lastTargets, lastSteal = {}, -math.huge, -math.huge, -math.huge
-    local updateHooks, updateRun, setAutoStyles
+    local lastScan, lastTargets, lastSteal = -math.huge, -math.huge, -math.huge
+    local updateHooks, updateRun
     local assets = ReplicatedStorage:FindFirstChild("Assets")
     local dribbleIds, specialIds = {}, {}
-    local stylesData = {}
-    pcall(function() stylesData = require(ReplicatedStorage.Shared.Tables.Styles).Styles end)
 
     local function connect(signal, fn)
         local c = signal:Connect(fn)
@@ -1779,7 +1777,6 @@ do
             if not alive or ScriptUnloaded then return end
             if not ok then
                 notify("controllers", "Game controllers are not ready. Re-enable the function after loading.")
-                if config.AutoStyles then setAutoStyles(false, "Game controllers are not ready") end
                 return
             end
             context = result
@@ -2058,157 +2055,9 @@ do
         end
     end
 
-    local function styleScreen()
-        local gui = PlayerGui:FindFirstChild("Style")
-        return gui, gui and gui:FindFirstChild("BG")
-    end
-    local spinInput, heldSpin
-    local spinEpoch = 0
-    local function releaseSpin(cancel)
-        local held = heldSpin
-        heldSpin = nil
-        if held and spinInput then
-            local x, y = cancel and 0 or held.X, cancel and 0 or held.Y
-            return pcall(spinInput.Button, x, y, false)
-        end
-        return true
-    end
-    local function getSpinInput()
-        local ok, input = pcall(function() return userInputService:CreateVirtualInput() end)
-        if ok and input then
-            return {Move = function(x, y) input:SendMousePosition(Vector2.new(x, y)) end,
-                Button = function(x, y, down) input:SendMouseButton(Vector2.new(x, y), Enum.UserInputType.MouseButton1, down, 0) end}
-        end
-        local found, manager = pcall(game.GetService, game, "VirtualInputManager")
-        if not found or not manager then return end
-        return {Move = function(x, y) manager:SendMouseMoveEvent(x, y, game) end,
-            Button = function(x, y, down) manager:SendMouseButtonEvent(x, y, 0, down, game, 0) end}
-    end
-    local function spinButtonHit(button, x, y)
-        if Window and type(Window.IsPointOverWindow) == "function" and Window:IsPointOverWindow(x, y) then return false end
-        local ok, objects = pcall(PlayerGui.GetGuiObjectsAtPosition, PlayerGui, x, y)
-        if not ok or type(objects) ~= "table" then return false end
-        for _, object in ipairs(objects) do
-            if object == button or object:IsDescendantOf(button) then return true end
-            if not button:IsDescendantOf(object) and (object:IsA("GuiButton") or object.Active) then return false end
-        end
-        return false
-    end
-    local function spinButtonPoint(button)
-        if not button or not button:IsA("GuiButton") or not visible(button) or button.Interactable == false then return end
-        local p, size = button.AbsolutePosition, button.AbsoluteSize
-        local camera = Workspace.CurrentCamera
-        if not camera or size.X < 4 or size.Y < 4 then return end
-        local center = p + size / 2
-        local inset = GuiService:GetGuiInset()
-        local gui = button:FindFirstAncestorOfClass("ScreenGui")
-        local offsets = gui and gui.IgnoreGuiInset and {Vector2.zero} or {inset, Vector2.zero}
-        for _, offset in ipairs(offsets) do
-            local x, y = math.floor(center.X + offset.X), math.floor(center.Y + offset.Y)
-            if x > 0 and y > 0 and x < camera.ViewportSize.X and y < camera.ViewportSize.Y and spinButtonHit(button, x, y) then
-                return x, y
-            end
-        end
-    end
-    local function pressSpinButton(button, onPress)
-        if heldSpin or not spinInput or userInputService:GetFocusedTextBox()
-            or userInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then return false, "wait" end
-        local x, y = spinButtonPoint(button)
-        if not x then return false, "wait" end
-        local now = os.clock()
-        local candidate = spin.Candidate
-        if not candidate or candidate.Button ~= button or math.abs(candidate.X - x) + math.abs(candidate.Y - y) > 3 then
-            spin.Candidate = {Button = button, X = x, Y = y, Since = now}
-            return false, "wait"
-        end
-        if now - candidate.Since < 0.35 then return false, "wait" end
-        spin.Candidate = nil
-        local held = {Button = button, X = x, Y = y, Epoch = spinEpoch}
-        heldSpin = held
-        onPress()
-        local moved = pcall(spinInput.Move, x, y)
-        local pressed = moved and pcall(spinInput.Button, x, y, true)
-        if not pressed then releaseSpin(true); return false, "Virtual mouse input is unavailable in this executor" end
-        task.delay(0.1, function()
-            if heldSpin ~= held then return end
-            local cancel = not alive or ScriptUnloaded or not config.AutoStyles or held.Epoch ~= spinEpoch
-                or not button.Parent or not visible(button)
-            if not cancel then
-                local currentX, currentY = spinButtonPoint(button)
-                cancel = not currentX or math.abs(currentX - x) + math.abs(currentY - y) > 3
-            end
-            local released = releaseSpin(cancel)
-            if not released and alive and config.AutoStyles then setAutoStyles(false, "Cannot release virtual mouse input") end
-        end)
-        return true
-    end
-    local function spinCount(button)
-        local left = button and button:FindFirstChild("Left")
-        if not left or not left:IsA("TextLabel") then return end
-        local digits = left.Text:gsub("<.->", ""):match("(%d[%d,%s]*)")
-        return digits and tonumber((digits:gsub("%D", "")))
-    end
-    local function stopSpin(reason)
-        spinEpoch += 1
-        releaseSpin(true)
-        spin = {}
-        if reason then NexusUI:Notify({Title = "Auto Styles", Content = reason, Duration = 5}) end
-    end
-    setAutoStyles = function(value, reason)
-        config.AutoStyles = value == true and IS_PREMIUM_USER == true and alive and not ScriptUnloaded
-        if not config.AutoStyles then
-            stopSpin(reason)
-            if options.AutoStyles and options.AutoStyles.Value then options.AutoStyles:SetValue(false) end
-            return
-        end
-        stopSpin()
-        spin.Started = os.clock()
-        spin.ReadyAt = spin.Started + 0.75
-        spinInput = getSpinInput()
-        if not spinInput then setAutoStyles(false, "Virtual mouse input is unavailable in this executor") end
-    end
-    local function updateSpin(now)
-        if not config.AutoStyles then return end
-        if config.StopStyle == "Select a style" then setAutoStyles(false, "Choose a style in Stop On Style first"); return end
-        local style = LocalPlayer:FindFirstChild("Style")
-        if style and style.Value == config.StopStyle then setAutoStyles(false, "Found " .. config.StopStyle); return end
-        if not LocalPlayer.Team or LocalPlayer.Team.Name ~= "Visitor" then setAutoStyles(false, "Return to the lobby to spin styles"); return end
-        local _, bg = styleScreen()
-        if not bg then return end
-        local button = bg:FindFirstChild(config.SpinType == "Lucky" and "LuckySpin" or "Spin")
-        local label = button and button:FindFirstChild("TextLabel")
-        local confirm = bg:FindFirstChild("Confirm")
-        local remaining = spinCount(button)
-        if not spin.Pending and remaining and remaining <= 0 then setAutoStyles(false, "No spins remaining"); return end
-        if heldSpin then return end
-        if spin.Pending then
-            if now - spin.At > 25 then setAutoStyles(false, "No completed spin; stopped without retrying"); return end
-            if label and label.Text == "SKIP" then spin.SawBusy = true end
-            if spin.AllowConfirm and not spin.Confirmed and not spin.SawBusy and confirm and confirm.Visible then
-                if now - spin.At > 5 then setAutoStyles(false, "The confirmation button is covered or unavailable"); return end
-                if not remaining or remaining <= 0 then setAutoStyles(false, "No spins remaining"); return end
-                local pressed, failure = pressSpinButton(confirm:FindFirstChild("Yes"), function() spin.Confirmed = true end)
-                if not pressed and failure ~= "wait" then setAutoStyles(false, failure) end
-                return
-            end
-            if spin.SawBusy and label and label.Text == "SPIN" and now - spin.At >= 11 then
-                spin.Pending, spin.SawBusy, spin.AllowConfirm, spin.Confirmed = nil, nil, nil, nil
-                spin.ReadyAt = now + 0.75
-            end
-            return
-        end
-        if now < (spin.ReadyAt or 0) or not visible(button) or not label or label.Text ~= "SPIN"
-            or confirm and confirm.Visible or userInputService:GetFocusedTextBox() then return end
-        if not remaining then setAutoStyles(false, "Cannot read the available spins from the Style menu"); return end
-        local pressed, failure = pressSpinButton(button, function()
-            spin.Pending, spin.At, spin.AllowConfirm, spin.SawBusy = true, now, true, false
-        end)
-        if not pressed and failure ~= "wait" then setAutoStyles(false, failure) end
-    end
-
     local heartbeat, render
     updateRun = function()
-        local active = config.SmartSteal or config.Genius or config.SoulCatch or config.AutoStyles or wantsHooks()
+        local active = config.SmartSteal or config.Genius or config.SoulCatch or wantsHooks()
         if config.SmartSteal or wantsHooks() then loadContext() end
         if active and not heartbeat then
             heartbeat = RunService.Heartbeat:Connect(function()
@@ -2216,12 +2065,11 @@ do
                 local now = os.clock()
                 if now - lastTargets >= 1 then lastTargets = now; refreshTargets() end
                 if (config.Genius or config.SoulCatch) and now - lastScan >= 0.1 then lastScan = now; discoverCircles() end
-                local ok, err = pcall(function() updateSteal(now); updateSpin(now) end)
+                local ok, err = pcall(function() updateSteal(now) end)
                 if not ok then
                     notify("update", "A game state changed; automated actions were paused")
                     config.SmartSteal = false
                     if options.SmartSteal then options.SmartSteal:SetValue(false) end
-                    if config.AutoStyles then setAutoStyles(false, "Game state is unavailable") end
                 end
             end)
         elseif not active and heartbeat then
@@ -2238,13 +2086,12 @@ do
     end
     local function toggle(tab, id, key, title, description)
         options[key] = tab:AddToggle(id, {Title = title, Description = description, Default = false, Callback = function(value)
-            if key == "AutoStyles" then setAutoStyles(value) else config[key] = value == true end
+            config[key] = value == true
             updateRun()
         end})
     end
     local function dropdown(tab, id, key, title, values)
         options[key] = tab:AddDropdown(id, {Title = title, Values = values, Default = config[key], Callback = function(value)
-            if (key == "StopStyle" or key == "SpinType") and config.AutoStyles then setAutoStyles(false, "Spin settings changed") end
             config[key] = value
             updateRun()
         end})
@@ -2285,36 +2132,21 @@ do
     styleTab:AddSection("Pass / Switch")
     dropdown(styleTab, "SpecialPassTarget", "SpecialTarget", "Special Pass Target", {"Default", "Nearest"})
     dropdown(styleTab, "SwitcherSwitchTarget", "SwitchTarget", "Switcher Switch Target", {"Default", "Nearest"})
-    if IS_PREMIUM_USER == true and Tabs.Premium then
-        local styles = {}
-        for key, value in pairs(stylesData) do
-            if type(value) == "table" and value.Rarity ~= "Dev" then styles[#styles + 1] = key end
-        end
-        table.sort(styles)
-        table.insert(styles, 1, "Select a style")
-        Tabs.Premium:AddSection("Auto Styles")
-        dropdown(Tabs.Premium, "AutoStylesStopOn", "StopStyle", "Stop On Style", styles)
-        dropdown(Tabs.Premium, "AutoStylesSpinType", "SpinType", "Spin Type", {"Normal", "Lucky"})
-        toggle(Tabs.Premium, "AutoStyles", "AutoStyles", "Auto Styles", "Clicks the visible game buttons; keep the Style menu open and the buttons uncovered")
-    end
     refreshTargets()
     connect(Players.PlayerAdded, refreshTargets)
     connect(Players.PlayerRemoving, function() task.defer(function() if alive then refreshTargets() end end) end)
     connect(LocalPlayer:GetPropertyChangedSignal("Team"), function()
         resetSteal()
         refreshTargets()
-        if config.AutoStyles then setAutoStyles(false, "Team changed") end
     end)
     connect(LocalPlayer.CharacterRemoving, function()
         resetSteal()
         table.clear(circles)
-        if config.AutoStyles then setAutoStyles(false, "Character changed") end
     end)
     RegisterUnloadCallback(function()
         alive = false
         clearHooks()
         resetSteal()
-        stopSpin()
         if heartbeat then heartbeat:Disconnect() end
         if render then render:Disconnect() end
         for _, connection in ipairs(connections) do connection:Disconnect() end
