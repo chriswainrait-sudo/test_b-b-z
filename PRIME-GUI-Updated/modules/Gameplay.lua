@@ -2696,7 +2696,7 @@ end
         {"StealDanger", "Steal Danger", "Warns about nearby enemies and incoming Steal animations"},
         {"InfiniteDribble", "Infinite Dribble", "Unlimited local Dribble uses with no series limit or cooldown"},
         {"SilentAimShot", "Silent Aim", "Aims ordinary shot releases at your scoring hoop without moving the camera"},
-        {"PerfectShot", "Perfect Shot", "Will not work with ping >120 ms or while using a VPN."},
+        {"PerfectShot", "Perfect Shot", "Won't work with ping > 120 ms or VPN"},
         {"ShotTrajectory", "Shot Trajectory", "Preview the shot arc and estimated first landing point while holding the ball"},
         {"QuickRelease", "Quick Release", "Attempt an earlier release for ordinary forward shots; server acceptance may vary"},
         {"ShotArcControl", "Shot Arc Control", "Set the arc height of ordinary shots; also updates the trajectory preview"},
@@ -2705,7 +2705,7 @@ end
     for _, control in ipairs(controls) do
         local key, title, description = control[1], control[2], control[3]
         Tabs.Main:AddToggle(key, {Title = title, Description = description, ShowDescription = key == "PerfectShot",
-            DescriptionColor = key == "PerfectShot" and Color3.fromRGB(255, 70, 70) or nil, Default = false,
+            DescriptionColor = key == "PerfectShot" and Color3.fromRGB(255, 182, 72) or nil, Default = false,
             Callback = function(value) setFeature(key, value) end})
         if key == "SilentAimShot" then
             Tabs.Main:AddSlider("SilentAimRange", {
@@ -2715,6 +2715,11 @@ end
                     if type(value) == "number" and value == value then silentAimRange = math.clamp(value, 15, 200) end
                 end,
             })
+        elseif key == "ShotArcControl" then
+            Tabs.Main:AddSlider("ShotArcHeight", {Title = "Shot Arc Height", Default = 10, Min = 3, Max = 30,
+                Step = 1, Rounding = 0, Callback = function(value)
+                    if type(value) == "number" and value == value then shotArcHeight = math.clamp(value, 3, 30) end
+                end})
         end
     end
     if IS_PREMIUM_USER == true then
@@ -2725,14 +2730,10 @@ end
         Tabs.Premium:AddToggle("SlowBall", {Title = "Slowing Down the Ball", Default = false,
             Callback = function(value) setFeature("SlowBall", value) end})
         Tabs.Premium:AddToggle("BallManipulation", {Title = "Ball Manipulation", Default = false,
-            ShowDescription = true, Description = "Will not work with ping >120 ms or while using a VPN.",
-            DescriptionColor = Color3.fromRGB(255, 70, 70),
+            ShowDescription = true, Description = "Won't work with ping > 120 ms or VPN",
+            DescriptionColor = Color3.fromRGB(255, 182, 72),
             Callback = function(value) setFeature("BallManipulation", value) end})
     end
-    Tabs.Main:AddSlider("ShotArcHeight", {Title = "Shot Arc Height", Default = 10, Min = 3, Max = 30,
-        Step = 1, Rounding = 0, Callback = function(value)
-            if type(value) == "number" and value == value then shotArcHeight = math.clamp(value, 3, 30) end
-        end})
 do
     local enabled = false
     local barrier, character, container

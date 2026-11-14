@@ -1659,4 +1659,603 @@ do
     end)
 end
 
+do
+    local alive, context, loading = true, nil, false
+    local config = {SmartSteal = false, StealRange = 14, StealTiming = "Balanced", Genius = false,
+        SoulCatch = false, CopyTarget = "Default", CopySlot = "Random", SpecialTarget = "Default",
+        SwitchTarget = "Default", AutoStyles = false, SpinType = "Normal", StopStyle = "Select a style"}
+    local connections, hooks, targets, options = {}, {}, {}, {}
+    local notices, circles = {}, setmetatable({}, {__mode = "k"})
+    local steal = {Seen = setmetatable({}, {__mode = "k"}), Next = 0, Protected = 0, Exhausted = 0, Count = 0}
+    local spin, lastScan, lastTargets, lastSteal = {}, -math.huge, -math.huge, -math.huge
+    local updateHooks, updateRun, setAutoStyles
+    local assets = ReplicatedStorage:FindFirstChild("Assets")
+    local dribbleIds, specialIds = {}, {}
+    local stylesData = {}
+    pcall(function() stylesData = require(ReplicatedStorage.Shared.Tables.Styles).Styles end)
+
+    local function connect(signal, fn)
+        local c = signal:Connect(fn)
+        connections[#connections + 1] = c
+        return c
+    end
+    local function notify(key, message)
+        if notices[key] then return end
+        notices[key] = true
+        NexusUI:Notify({Title = "PRIME", Content = message, Duration = 5})
+    end
+    local function click(button, event)
+        if not button or not button:IsA("GuiButton") then return false end
+        local signal = button[event or "MouseButton1Click"]
+        if type(getconnections) == "function" then
+            local ok, handlers = pcall(getconnections, signal)
+            local fired = false
+            for _, handler in ipairs(ok and type(handlers) == "table" and handlers or {}) do
+                if not alive or ScriptUnloaded then break end
+                local readable, enabled = pcall(function() return handler.Enabled end)
+                if not readable or enabled ~= false then
+                    local got, fn = pcall(function() return handler.Function end)
+                    local success = got and type(fn) == "function" and pcall(fn)
+                    if not success then success = pcall(function() handler:Fire() end) end
+                    fired = fired or success
+                end
+            end
+            if fired then return true end
+        end
+        return type(firesignal) == "function" and pcall(firesignal, signal) or false
+    end
+    local function visible(object)
+        if not object or not object:IsDescendantOf(PlayerGui) then return false end
+        local p = object
+        while p and p ~= PlayerGui do
+            if p:IsA("GuiObject") and not p.Visible then return false end
+            if p:IsA("ScreenGui") and not p.Enabled then return false end
+            p = p.Parent
+        end
+        return true
+    end
+    local function living(player)
+        local character = player and player.Character
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        if player and player.Parent == Players and character and character.Parent and root and humanoid and humanoid.Health > 0 then
+            return character, root, humanoid
+        end
+    end
+    local function sameSide(player, side)
+        local team, other = LocalPlayer.Team, player and player.Team
+        return player ~= LocalPlayer and team and other and team.Name ~= "Visitor" and other.Name ~= "Visitor"
+            and (side == "Any" or side == "Ally" and team == other or side == "Enemy" and team ~= other)
+    end
+    local function targetFor(selection, side, maximum)
+        local _, root = living(LocalPlayer)
+        if not root or selection == "Default" then return end
+        local chosen, distance
+        for _, player in ipairs(Players:GetPlayers()) do
+            if sameSide(player, side) and (selection == "Nearest" or targets[selection] == player.UserId) then
+                local character, otherRoot = living(player)
+                local d = otherRoot and (otherRoot.Position - root.Position).Magnitude
+                if d and (not maximum or d <= maximum) and (not distance or d < distance) then
+                    chosen, distance = character, d
+                end
+            end
+        end
+        return chosen
+    end
+    local function proxyController(controller, field, selection, side, maximum, ownerKey)
+        local target = targetFor(selection, side, maximum)
+        if not target then return end
+        ownerKey = ownerKey or "Pass"
+        local pass = controller[ownerKey]
+        if type(pass) ~= "table" then return end
+        local selected = setmetatable({}, {
+            __index = function(_, key)
+                if key == field then
+                    if target.Parent and Players:GetPlayerFromCharacter(target) then return target end
+                    return nil
+                end
+                return pass[key]
+            end,
+            __newindex = function(_, key, value) pass[key] = value end,
+        })
+        return setmetatable({}, {
+            __index = function(_, key) if key == ownerKey then return selected end; return controller[key] end,
+            __newindex = function(_, key, value) controller[key] = value end,
+        })
+    end
+    local function loadContext()
+        if context or loading or not alive then return end
+        loading = true
+        task.spawn(function()
+            local ok, result = pcall(function()
+                local knit = require(ReplicatedStorage.Packages.Knit)
+                local modules = ReplicatedStorage.Controllers.AbilityController.Abilities
+                return {Ball = knit.GetController("BallController"), Ability = knit.GetController("AbilityController"),
+                    Network = knit.GetController("Network"), Movement = knit.GetController("MovementController"),
+                    Modules = modules, Moves = require(modules), Zones = require(ReplicatedStorage.Shared.Tables.Zones),
+                    Knit = knit}
+            end)
+            loading = false
+            if not alive or ScriptUnloaded then return end
+            if not ok then
+                notify("controllers", "Game controllers are not ready. Re-enable the function after loading.")
+                if config.AutoStyles then setAutoStyles(false, "Game controllers are not ready") end
+                return
+            end
+            context = result
+            if updateHooks then updateHooks() end
+        end)
+    end
+    local function wantsHooks()
+        return config.CopyTarget ~= "Default" or config.CopySlot ~= "Random"
+            or config.SpecialTarget ~= "Default" or config.SwitchTarget ~= "Default"
+    end
+    local function installHook(module, handler)
+        if not module or not module:IsA("ModuleScript") then return false end
+        local ok, fn = pcall(require, module)
+        if not ok or type(fn) ~= "function" then return false end
+        local env = type(getgenv) == "function" and getgenv() or _G
+        local registry = env.PRIMEStyleHooksV1
+        if type(registry) ~= "table" then registry = {}; env.PRIMEStyleHooksV1 = registry end
+        local node = registry[fn]
+        if not node then
+            if type(hookfunction) ~= "function" then
+                notify("hooks", "Target selectors and Copy Slot require hookfunction in this executor.")
+                return false
+            end
+            node = {}
+            local installed, original = pcall(hookfunction, fn, function(...)
+                if node.Handler then return node.Handler(node.Original, ...) end
+                return node.Original(...)
+            end)
+            if not installed or type(original) ~= "function" then return false end
+            node.Original = original
+            registry[fn] = node
+        end
+        node.Owner, node.Handler = config, handler
+        hooks[node] = true
+        return true
+    end
+    local function clearHooks()
+        for node in pairs(hooks) do
+            if node.Owner == config then node.Handler, node.Owner = nil, nil end
+        end
+        table.clear(hooks)
+    end
+    local function moduleAt(path)
+        local module = context and context.Modules
+        for part in path:gmatch("[^.]+") do module = module and module:FindFirstChild(part) end
+        return module
+    end
+    local function applyCopySlot(controller, index)
+        local setting = controller.CopiedSetting
+        local moves = setting and context.Moves[setting.Style]
+        local chosen = moves and moves[index]
+        local copy = context.Moves.Copycat and context.Moves.Copycat[1]
+        if not chosen or not chosen.Ability or not copy then return false end
+        setting.Index, setting.Ability = index, chosen.Ability
+        copy.Ability = chosen.Multi and chosen.Ability or moduleAt("Copycat.Copy")
+        for _, key in ipairs({"Name", "BallName", "RequiresBall", "Steal", "Jump"}) do copy[key] = chosen[key] end
+        return true
+    end
+    updateHooks = function()
+        clearHooks()
+        if not context or not wantsHooks() or not alive then return end
+        if config.CopyTarget ~= "Default" or config.CopySlot ~= "Random" then
+            installHook(moduleAt("Copycat.Copy"), function(original, controller, ...)
+                if not alive or ScriptUnloaded then return original(controller, ...) end
+                local style = LocalPlayer:FindFirstChild("Style")
+                if not style or style.Value ~= "Copycat" then return original(controller, ...) end
+                local acquiring = controller.CopiedSetting == nil
+                local input = controller
+                if acquiring and config.CopyTarget ~= "Default" then
+                    input = proxyController(controller, "LookingDirect", config.CopyTarget, "Enemy")
+                    if not input then controller:ResetCD(1); return end
+                end
+                local results = table.pack(original(input, ...))
+                if alive and not ScriptUnloaded and acquiring and controller.CopiedSetting and config.CopySlot ~= "Random" then
+                    applyCopySlot(controller, tonumber(config.CopySlot))
+                end
+                return table.unpack(results, 1, results.n)
+            end)
+        end
+        if config.SpecialTarget ~= "Default" then
+            for _, path in ipairs({"Emperor.UltimatePass", "Gold.NeedlePass", "Dealer.BlinkDeal", "Genius.LockdownTarget"}) do
+                installHook(moduleAt(path), function(original, controller, ...)
+                    if not alive or ScriptUnloaded or config.SpecialTarget == "Default" then return original(controller, ...) end
+                    if path == "Emperor.UltimatePass" and (controller.EmperorsReach or controller.UltimatePass) then return original(controller, ...) end
+                    local input = proxyController(controller, "LookingAt", config.SpecialTarget, "Ally", nil,
+                        path == "Dealer.BlinkDeal" and "Network" or "Pass")
+                    if not input then
+                        notify("pass-target", "Selected pass target is unavailable")
+                        return original(controller, ...)
+                    end
+                    return original(input, ...)
+                end)
+            end
+        end
+        if config.SwitchTarget ~= "Default" then
+            installHook(moduleAt("Switcher.Switch"), function(original, controller, ...)
+                if not alive or ScriptUnloaded or config.SwitchTarget == "Default" then return original(controller, ...) end
+                local limit = controller.Network.CharValues.HasBall and 95 or 130
+                local input = proxyController(controller, "LookingAt", config.SwitchTarget, "Ally", limit)
+                if not input then controller:ResetCD(2); return end
+                return original(input, ...)
+            end)
+        end
+    end
+
+    local function refreshTargets()
+        local lists = {Enemy = {"Default", "Nearest"}, Ally = {"Default", "Nearest"}}
+        local ids = {}
+        for _, player in ipairs(Players:GetPlayers()) do
+            local side = sameSide(player, "Enemy") and "Enemy" or sameSide(player, "Ally") and "Ally"
+            if side then
+                local label = string.format("%s (@%s)", player.DisplayName, player.Name)
+                lists[side][#lists[side] + 1], ids[label] = label, player.UserId
+            end
+        end
+        for _, list in pairs(lists) do
+            table.sort(list, function(a, b)
+                if a == "Default" or b == "Default" then return a == "Default" and b ~= "Default" end
+                if a == "Nearest" or b == "Nearest" then return a == "Nearest" and b ~= "Nearest" end
+                return a:lower() < b:lower()
+            end)
+        end
+        for _, pair in ipairs({{"CopyTarget", "Enemy"}, {"SpecialTarget", "Ally"}, {"SwitchTarget", "Ally"}}) do
+            local key, side = pair[1], pair[2]
+            local selection = config[key]
+            local list = table.clone(lists[side])
+            if selection ~= "Default" and selection ~= "Nearest" and not ids[selection] then
+                list[#list + 1] = selection
+                ids[selection] = targets[selection]
+            end
+            if options[key] then options[key]:SetValues(list) end
+        end
+        targets = ids
+    end
+    local function resetSteal()
+        if steal.Connection then steal.Connection:Disconnect() end
+        steal = {Seen = setmetatable({}, {__mode = "k"}), Next = 0, Protected = 0, Exhausted = 0, Count = 0}
+    end
+    local function observeDribble(track, existing)
+        if steal.Seen[track] ~= nil then return end
+        local id = track.Animation and track.Animation.AnimationId:match("%d+")
+        local combo = id and dribbleIds[id]
+        local special = id and specialIds[id]
+        if not combo and not special then return end
+        steal.Seen[track] = true
+        local elapsed = track.TimePosition / math.max(0.01, math.abs(track.Speed))
+        if track.Looped or existing and elapsed > 0.72 then return end
+        local at = os.clock() - (existing and elapsed or 0)
+        if special then
+            steal.Protected = math.max(steal.Protected, at + math.max(0.8, track.Length / math.max(0.01, math.abs(track.Speed))))
+            return
+        end
+        if at - (steal.LastDribble or -math.huge) > 4 then steal.Count = 0 end
+        steal.LastDribble = at
+        steal.Count = math.max(steal.Count + 1, combo)
+        steal.Protected = math.max(steal.Protected, at + 0.72)
+        local maximum = 3
+        local zone = steal.Owner and steal.Owner:FindFirstChild("Zone")
+        if context.Ball:BallPlayerZoneIsActive() and zone then maximum = context.Zones.ZoneDribbles[zone.Value] or 3 end
+        if steal.Count >= maximum then steal.Count = 0; steal.Exhausted = at + 4 end
+    end
+    local function bindOwner(owner, character, humanoid)
+        local animator = humanoid:FindFirstChildOfClass("Animator")
+        if steal.Owner == owner and steal.Character == character and steal.Animator == animator then return end
+        local nextAttempt = steal.Next
+        resetSteal()
+        steal.Next = nextAttempt
+        steal.Owner, steal.Character, steal.Animator, steal.Entered = owner, character, animator, os.clock()
+        if animator then
+            steal.Connection = animator.AnimationPlayed:Connect(function(track)
+                steal.Seen[track] = nil
+                observeDribble(track, false)
+            end)
+        end
+    end
+    local function canPlay()
+        local values = ReplicatedStorage:FindFirstChild("GameValues")
+        local state = values and values:FindFirstChild("State")
+        local tip = values and values:FindFirstChild("TipOff")
+        local scoring = values and values:FindFirstChild("Scoring")
+        return state and state.Value == "Playing" and not (tip and tip.Value) and not (scoring and scoring.Value)
+    end
+    local function updateSteal(now)
+        if not config.SmartSteal or not context or now - lastSteal < 0.04 then return end
+        lastSteal = now
+        if not canPlay() or userInputService:GetFocusedTextBox() then resetSteal(); return end
+        local ball, movement = context.Ball, context.Movement.States
+        local own, root, humanoid = living(LocalPlayer)
+        local owner = ball:GetPlayerPossessingBall()
+        if not own or not owner or not sameSide(owner, "Enemy") then resetSteal(); return end
+        local character, enemyRoot, enemyHumanoid = living(owner)
+        if not character then return end
+        bindOwner(owner, character, enemyHumanoid)
+        if steal.Animator then
+            for _, track in ipairs(steal.Animator:GetPlayingAnimationTracks()) do
+                if track.IsPlaying then observeDribble(track, true) end
+            end
+        end
+        if now < steal.Next or now - steal.Entered < 0.18 or now < steal.Protected
+            or config.StealTiming == "Safe windows" and now >= steal.Exhausted then return end
+        if movement.Stunned or movement.Stealing or movement.Ability or movement.NoWalk
+            or context.Network.CharValues.HasBall or humanoid.Sit or humanoid.FloorMaterial == Enum.Material.Air
+            or (own:FindFirstChild("IsRagdoll") and own.IsRagdoll.Value) or ball:NoAction()
+            or ball:BallIFrameIsActive() or ball:BallTeamIFrameIsActive() then return end
+        local position = ball:GetServerBallPosition()
+        local delta = position + enemyRoot.AssemblyLinearVelocity * 0.08 - root.Position
+        local horizontal = Vector3.new(delta.X, 0, delta.Z)
+        if delta.Magnitude > config.StealRange or math.abs(delta.Y) > 7 or horizontal.Magnitude < 0.1
+            or root.CFrame.LookVector:Dot(horizontal.Unit) < 0.35 then return end
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        params.FilterDescendantsInstances = {own, character}
+        params.RespectCanCollide = true
+        if Workspace:Raycast(root.Position, position - root.Position, params) then return end
+        local mobile = PlayerGui:FindFirstChild("Mobile")
+        local panel = mobile and mobile:FindFirstChild("NoBall")
+        local button = panel and panel:FindFirstChild("Steal")
+        if not button then return end
+        local zone = LocalPlayer:FindFirstChild("Zone")
+        steal.Next = now + math.max(0.4, zone and context.Zones.StealCooldowns[zone.Value] or 2.35)
+        task.spawn(function()
+            if config.SmartSteal and alive and not ScriptUnloaded then click(button) end
+        end)
+    end
+
+    local function discoverCircles()
+        for _, gui in ipairs(PlayerGui:GetChildren()) do
+            if gui:IsA("ScreenGui") and gui.Name == "Circle" and not circles[gui] then
+                local button = gui:FindFirstChild("Button")
+                local group = button and button:FindFirstChild("CanvasGroup")
+                local white = group and group:FindFirstChild("White")
+                local center = group and group:FindFirstChild("Center")
+                local frame = gui:FindFirstChild("Frame")
+                local radius = frame and frame:FindFirstChild("Radius")
+                local scale = radius and radius:FindFirstChildOfClass("UIScale")
+                local soulButton = frame and frame:FindFirstChild("Button")
+                local holder = frame and frame:FindFirstChild("Holder")
+                if button and white and center and button:IsA("GuiButton") then
+                    circles[gui] = {Kind = "Genius", Button = button, White = white, Center = center}
+                elseif scale and soulButton and soulButton:IsA("GuiButton") and holder and holder:FindFirstChild("KeybindText") then
+                    circles[gui] = {Kind = "SoulCatch", Button = soulButton, Scale = scale}
+                end
+            end
+        end
+    end
+    local function updateCircles(dt)
+        if not config.Genius and not config.SoulCatch then return end
+        for gui, record in pairs(circles) do
+            if not gui.Parent then circles[gui] = nil
+            elseif not record.Fired and config[record.Kind] and visible(record.Button) then
+                local ready, original
+                if record.Kind == "Genius" then
+                    local gap = (record.White.Rotation - record.Center.Rotation) % 360
+                    ready = math.min(gap, 360 - gap) <= 2.8 or record.Gap and record.Gap < 30 and gap > 330
+                    record.Gap = gap
+                    if ready then original = record.Center.Rotation; record.Center.Rotation = record.White.Rotation end
+                else
+                    local scale = record.Scale.Scale
+                    ready = math.abs(scale - 1) <= 0.04 or record.Previous and record.Previous > 1 and scale < 1
+                    record.Previous = scale
+                    if ready then original = scale; record.Scale.Scale = 1 end
+                end
+                if ready then
+                    record.Fired = true
+                    task.spawn(function()
+                        if not alive or ScriptUnloaded or not config[record.Kind] or not gui.Parent then return end
+                        local success = click(record.Button, "Activated")
+                        if not success then
+                            if record.Kind == "Genius" and record.Center.Parent then record.Center.Rotation = original
+                            elseif record.Scale and record.Scale.Parent then record.Scale.Scale = original end
+                            notify("skill-input", "Skillcheck button callbacks are unavailable in this executor")
+                        end
+                    end)
+                end
+            end
+        end
+    end
+
+    local function styleScreen()
+        local gui = PlayerGui:FindFirstChild("Style")
+        return gui, gui and gui:FindFirstChild("BG")
+    end
+    local function stopSpin(reason)
+        if spin.Connection then spin.Connection:Disconnect() end
+        spin = {}
+        if reason then NexusUI:Notify({Title = "Auto Styles", Content = reason, Duration = 5}) end
+    end
+    setAutoStyles = function(value, reason)
+        config.AutoStyles = value == true and IS_PREMIUM_USER == true and alive and not ScriptUnloaded
+        if not config.AutoStyles then
+            stopSpin(reason)
+            if options.AutoStyles and options.AutoStyles.Value then options.AutoStyles:SetValue(false) end
+            return
+        end
+        stopSpin()
+        spin.Started = os.clock()
+        loadContext()
+    end
+    local function updateSpin(now)
+        if not config.AutoStyles then return end
+        if config.StopStyle == "Select a style" then setAutoStyles(false, "Choose a style in Stop On Style first"); return end
+        local style = LocalPlayer:FindFirstChild("Style")
+        if style and style.Value == config.StopStyle then setAutoStyles(false, "Found " .. config.StopStyle); return end
+        if not context then
+            if now - (spin.Started or now) > 15 then setAutoStyles(false, "Game data did not load") end
+            return
+        end
+        local player = context.Network.Player
+        if type(player) ~= "table" then return end
+        local remaining = config.SpinType == "Lucky" and player.LuckySpins or player.Spins
+        if not spin.Pending and (type(remaining) ~= "number" or remaining <= 0) then setAutoStyles(false, "No spins remaining"); return end
+        if not LocalPlayer.Team or LocalPlayer.Team.Name ~= "Visitor" then setAutoStyles(false, "Return to the lobby to spin styles"); return end
+        local locked = player.LockedSlots and player.LockedSlots.Style
+        if locked and locked[player.StyleSlotEquipped] then setAutoStyles(false, "The equipped style slot is locked"); return end
+        if player.LimitedStyleEquipped ~= nil then setAutoStyles(false, "Unequip the limited style before spinning"); return end
+        if spin.Slot and spin.Slot ~= player.StyleSlotEquipped then setAutoStyles(false, "Style slot changed"); return end
+        spin.Slot = player.StyleSlotEquipped
+        if not spin.Connection then
+            local ok, service = pcall(context.Knit.GetService, "StyleService")
+            if not ok or not service or not service.Spin then setAutoStyles(false, "Style results are unavailable"); return end
+            local connected, connection = pcall(function()
+                return service.Spin:Connect(function()
+                    if config.AutoStyles and spin.Pending then spin.Ack = true end
+                end)
+            end)
+            if not connected then setAutoStyles(false, "Cannot observe spin completion"); return end
+            spin.Connection = connection
+            local okStyle, controller = pcall(function() return require(ReplicatedStorage.Controllers.UIController.Style) end)
+            if okStyle then spin.Controller = controller end
+        end
+        local _, bg = styleScreen()
+        if not bg then return end
+        local button = bg:FindFirstChild(config.SpinType == "Lucky" and "LuckySpin" or "Spin")
+        local label = button and button:FindFirstChild("TextLabel")
+        local confirm = bg:FindFirstChild("Confirm")
+        if spin.Pending then
+            if now - spin.At > 15 then setAutoStyles(false, "No completed spin result; stopped to avoid repeated requests"); return end
+            if spin.OurConfirm and not spin.Confirmed and confirm and confirm.Visible then
+                spin.Confirmed = true
+                local count = config.SpinType == "Lucky" and player.LuckySpins or player.Spins
+                if type(count) ~= "number" or count <= 0 then setAutoStyles(false, "No spins remaining"); return end
+                if not click(confirm:FindFirstChild("Yes")) then setAutoStyles(false, "Cannot activate the confirmation button") end
+                return
+            end
+            if spin.Ack and label and label.Text == "SPIN" and now - spin.At >= 0.5 then
+                spin.Pending, spin.Ack, spin.OurConfirm, spin.Confirmed = nil, nil, nil, nil
+                spin.ReadyAt = now + 0.6
+            end
+            return
+        end
+        if now < (spin.ReadyAt or 0) or not visible(button) or not label or label.Text ~= "SPIN"
+            or confirm and confirm.Visible or userInputService:GetFocusedTextBox() then return end
+        local controller = spin.Controller
+        if controller and controller.Party and controller.Party.InQueue then setAutoStyles(false, "Leave the matchmaking queue before spinning"); return end
+        if controller and controller.Bursting then setAutoStyles(false, "Wait for Spin Burst to end"); return end
+        local count = config.SpinType == "Lucky" and player.LuckySpins or player.Spins
+        if type(count) ~= "number" or count <= 0 then setAutoStyles(false, "No spins remaining"); return end
+        spin.Pending, spin.At, spin.Ack = true, now, false
+        if not click(button) then setAutoStyles(false, "Cannot activate the spin button"); return end
+        spin.OurConfirm = confirm and confirm.Visible == true
+    end
+
+    local heartbeat, render
+    updateRun = function()
+        local active = config.SmartSteal or config.Genius or config.SoulCatch or config.AutoStyles or wantsHooks()
+        if active then loadContext() end
+        if active and not heartbeat then
+            heartbeat = RunService.Heartbeat:Connect(function()
+                if not alive or ScriptUnloaded then return end
+                local now = os.clock()
+                if now - lastTargets >= 1 then lastTargets = now; refreshTargets() end
+                if (config.Genius or config.SoulCatch) and now - lastScan >= 0.1 then lastScan = now; discoverCircles() end
+                local ok, err = pcall(function() updateSteal(now); updateSpin(now) end)
+                if not ok then
+                    notify("update", "A game state changed; automated actions were paused")
+                    config.SmartSteal = false
+                    if options.SmartSteal then options.SmartSteal:SetValue(false) end
+                    if config.AutoStyles then setAutoStyles(false, "Game state is unavailable") end
+                end
+            end)
+        elseif not active and heartbeat then
+            heartbeat:Disconnect(); heartbeat = nil
+        end
+        if (config.Genius or config.SoulCatch) and not render then
+            render = RunService.RenderStepped:Connect(function(dt)
+                if alive and not ScriptUnloaded then pcall(updateCircles, dt) end
+            end)
+            discoverCircles()
+        elseif not config.Genius and not config.SoulCatch and render then render:Disconnect(); render = nil end
+        if not config.SmartSteal then resetSteal() end
+        updateHooks()
+    end
+    local function toggle(tab, id, key, title, description)
+        options[key] = tab:AddToggle(id, {Title = title, Description = description, Default = false, Callback = function(value)
+            if key == "AutoStyles" then setAutoStyles(value) else config[key] = value == true end
+            updateRun()
+        end})
+    end
+    local function dropdown(tab, id, key, title, values)
+        options[key] = tab:AddDropdown(id, {Title = title, Values = values, Default = config[key], Callback = function(value)
+            if (key == "StopStyle" or key == "SpinType") and config.AutoStyles then setAutoStyles(false, "Spin settings changed") end
+            config[key] = value
+            updateRun()
+        end})
+    end
+    for _, folder in ipairs(assets and assets:GetChildren() or {}) do
+        if folder.Name == "Animations" then
+            for _, group in ipairs(folder:GetChildren()) do
+                if group.Name == "Dribbles" or group.Name:find("Combo", 1, true) then
+                    for _, animation in ipairs(group:GetChildren()) do
+                        if animation:IsA("Animation") then
+                            local id = animation.AnimationId:match("%d+")
+                            if id then dribbleIds[id] = group.Name == "Dribbles" and 1 or math.max(1, #animation.Name - 1) end
+                        end
+                    end
+                end
+            end
+        elseif folder.Name == "StyleAnimations" then
+            for _, animation in ipairs(folder:GetDescendants()) do
+                if animation:IsA("Animation") and not animation.Name:lower():find("ball", 1, true) then
+                    local id = animation.AnimationId:match("%d+")
+                    if id then specialIds[id] = true end
+                end
+            end
+        end
+    end
+    Tabs.Main:AddSection("Smart Steal", "Right")
+    toggle(Tabs.Main, "SmartAutoSteal", "SmartSteal", "[Smart] Auto Steal", "Uses the game Steal button when the carrier is in range and ball protection has ended")
+    options.StealRange = Tabs.Main:AddSlider("SmartStealRange", {Title = "Steal Range", Default = 14, Min = 5, Max = 17, Rounding = 1,
+        Callback = function(value) config.StealRange = math.clamp(value, 5, 17) end})
+    dropdown(Tabs.Main, "SmartStealTiming", "StealTiming", "Steal Timing", {"Balanced", "Safe windows"})
+    local styleTab = Tabs.Styles or Tabs.EventsFarm
+    styleTab:AddSection("Skillchecks")
+    toggle(styleTab, "GeniusAutoPerfectLockdown", "Genius", "Genius Auto Perfect Lockdown", "Completes each Lockdown circle once at the alignment point")
+    toggle(styleTab, "TatlisV2AutoSoulCatch", "SoulCatch", "Tatlis V2 Auto Soul Catch Skillcheck", "Completes the Soul Catch ring through its native button callback")
+    styleTab:AddSection("Copycat")
+    dropdown(styleTab, "CopycatCopyTarget", "CopyTarget", "Copycat Copy Target Selector", {"Default", "Nearest"})
+    dropdown(styleTab, "CopycatCopySlot", "CopySlot", "[Experimental] Copycat Copy Slot", {"Random", "1", "2"})
+    styleTab:AddSection("Pass / Switch")
+    dropdown(styleTab, "SpecialPassTarget", "SpecialTarget", "Special Pass Target", {"Default", "Nearest"})
+    dropdown(styleTab, "SwitcherSwitchTarget", "SwitchTarget", "Switcher Switch Target", {"Default", "Nearest"})
+    if IS_PREMIUM_USER == true and Tabs.Premium then
+        local styles = {}
+        for key, value in pairs(stylesData) do
+            if type(value) == "table" and value.Rarity ~= "Dev" then styles[#styles + 1] = key end
+        end
+        table.sort(styles)
+        table.insert(styles, 1, "Select a style")
+        Tabs.Premium:AddSection("Auto Styles")
+        dropdown(Tabs.Premium, "AutoStylesStopOn", "StopStyle", "Stop On Style", styles)
+        dropdown(Tabs.Premium, "AutoStylesSpinType", "SpinType", "Spin Type", {"Normal", "Lucky"})
+        toggle(Tabs.Premium, "AutoStyles", "AutoStyles", "Auto Styles", "Uses available spins in the open Style menu and stops on the selected style")
+    end
+    refreshTargets()
+    connect(Players.PlayerAdded, refreshTargets)
+    connect(Players.PlayerRemoving, function() task.defer(function() if alive then refreshTargets() end end) end)
+    connect(LocalPlayer:GetPropertyChangedSignal("Team"), function()
+        resetSteal()
+        refreshTargets()
+        if config.AutoStyles then setAutoStyles(false, "Team changed") end
+    end)
+    connect(LocalPlayer.CharacterRemoving, function()
+        resetSteal()
+        table.clear(circles)
+        if config.AutoStyles then setAutoStyles(false, "Character changed") end
+    end)
+    RegisterUnloadCallback(function()
+        alive = false
+        clearHooks()
+        resetSteal()
+        stopSpin()
+        if heartbeat then heartbeat:Disconnect() end
+        if render then render:Disconnect() end
+        for _, connection in ipairs(connections) do connection:Disconnect() end
+        table.clear(circles)
+    end)
+end
+
 end}

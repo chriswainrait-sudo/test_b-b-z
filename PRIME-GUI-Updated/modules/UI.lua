@@ -122,21 +122,65 @@ end
 -- Fonts: wide techno face for titles, clean geometric face for everything else.
 local FONT_BODY = "rbxasset://fonts/families/TitilliumWeb.json"
 local FONT_TITLE = "rbxasset://fonts/families/Michroma.json"
-
--- Window background gradient (top-left light -> bottom-right deep black).
-local function windowGradient()
-    local g = Instance.new("UIGradient")
-    NexusUI:BindColor(g, "Color", function()
-        local base = COLOR_WINDOW
-        return ColorSequence.new({
-            ColorSequenceKeypoint.new(0, base:Lerp(ACCENT, 0.18)),
-            ColorSequenceKeypoint.new(0.35, base:Lerp(ACCENT, 0.09)),
-            ColorSequenceKeypoint.new(0.75, base:Lerp(ACCENT, 0.035)),
-            ColorSequenceKeypoint.new(1, base),
-        })
+local TS = IS_MOBILE and 11 or 13
+local WHITE, RAGE, GOOD, WARN = Color3.new(1, 1, 1), Color3.fromRGB(255, 95, 115), Color3.fromRGB(70, 214, 138), Color3.fromRGB(255, 182, 72)
+local function new(class, props, parent)
+    local o = Instance.new(class)
+    for k, v in pairs(props) do o[k] = v end
+    o.Parent = parent
+    return o
+end
+local function bind(o, k, f) NexusUI:BindColor(o, k, f) return o end
+local function corner(o, r) return new("UICorner", {CornerRadius = UDim.new(0, r)}, o) end
+local function textColor() return COLOR_TEXT end
+local function dimColor() return COLOR_TEXT_DIM end
+local function dimText() return COLOR_TEXT_DIM:Lerp(COLOR_WINDOW, 0.28) end
+local function accentColor() return ACCENT end
+local function stroke(o, t, f) return bind(new("UIStroke", {ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Thickness = 1, Transparency = t}, o), "Color", f or textColor) end
+local function caption(parent, props, f)
+    props.BackgroundTransparency = 1
+    props.TextXAlignment = props.TextXAlignment or Enum.TextXAlignment.Left
+    return bind(new("TextLabel", props, parent), "TextColor3", f or textColor)
+end
+local function loadAsset(path, encoded)
+    local customAsset = getcustomasset or getsynasset
+    if type(customAsset) ~= "function" or type(writefile) ~= "function" then return end
+    local ok, asset = pcall(function()
+        if type(isfile) ~= "function" or not isfile(path) then
+            local decode = type(crypt) == "table" and (crypt.base64decode or type(crypt.base64) == "table" and crypt.base64.decode)
+            local done, bytes = pcall(function() return decode(encoded) end)
+            if not done or type(bytes) ~= "string" or bytes:sub(1, 4) ~= "\137PNG" then
+                local lookup, out = {}, {}
+                for i = 1, 64 do lookup[("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"):byte(i)] = i - 1 end
+                for i = 1, #encoded, 4 do
+                    local a, b, c, d = encoded:byte(i, i + 3)
+                    local n = lookup[a] * 262144 + lookup[b] * 4096 + (lookup[c] or 0) * 64 + (lookup[d] or 0)
+                    local x, y, z = math.floor(n / 65536), math.floor(n / 256) % 256, n % 256
+                    out[#out + 1] = c == 61 and string.char(x) or d == 61 and string.char(x, y) or string.char(x, y, z)
+                end
+                bytes = table.concat(out)
+            end
+            writefile(path, bytes)
+        end
+        return customAsset(path)
     end)
-    g.Rotation = 35
-    return g
+    return ok and type(asset) == "string" and asset ~= "" and asset or nil
+end
+local atlas = loadAsset("PRIME_ui_atlas_e54a62e449bb.png", [=[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]=])
+local shadowAsset = loadAsset("PRIME_ui_shadow_927ae89f263b.png", [=[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]=])
+local ICONS = {glow = {0, 0, 64, 64}, warn = {64, 0, 64, 64}, close = {128, 0, 64, 64}, minus = {192, 0, 64, 64}, elbow = {0, 64, 26, 64}, chevron = {64, 64, 64, 64}, check = {128, 64, 64, 64}}
+local function icon(name, w, h, color, parent)
+    local r = ICONS[name]
+    local o = new("ImageLabel", {Name = name, Image = atlas or "", ImageRectOffset = Vector2.new(r[1], r[2]), ImageRectSize = Vector2.new(r[3], r[4]), Size = UDim2.fromOffset(w, h), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), BackgroundTransparency = 1, BorderSizePixel = 0, Active = false}, parent)
+    if type(color) == "function" then bind(o, "ImageColor3", color) else o.ImageColor3 = color end
+    return o
+end
+
+local function windowGradient()
+    return bind(new("UIGradient", {Rotation = 35}), "Color", function()
+        local base, light = Color3.fromRGB(9, 9, 12), Color3.fromRGB(236, 238, 243)
+        return ColorSequence.new({ColorSequenceKeypoint.new(0, base:Lerp(light, 0.15)), ColorSequenceKeypoint.new(0.35, base:Lerp(light, 0.075)), ColorSequenceKeypoint.new(0.75, base:Lerp(light, 0.03)), ColorSequenceKeypoint.new(1, base)})
+    end)
 end
 
 local function createImageBackground(parent)
@@ -146,12 +190,12 @@ local function createImageBackground(parent)
     artwork.Position = UDim2.fromScale(0.5, 0.5)
     artwork.Size = UDim2.fromScale(1, 1)
     artwork.BackgroundTransparency, artwork.BorderSizePixel = 1, 0
-    artwork.ImageTransparency = 0.9
+    artwork.ImageTransparency = 0.88
     artwork.ScaleType = Enum.ScaleType.Stretch
     artwork.Active, artwork.Selectable, artwork.ZIndex = false, false, 2
     artwork.Parent = parent
     local artworkCorner = Instance.new("UICorner")
-    artworkCorner.CornerRadius = UDim.new(0, 10)
+    artworkCorner.CornerRadius = UDim.new(0, 12)
     artworkCorner.Parent = artwork
     task.defer(function()
         local customAsset = getcustomasset or getsynasset
@@ -310,24 +354,13 @@ local function createSnowfall(mainFrame, innerClip, screenGui)
 end
 
 local function borderGradient()
-    local g = Instance.new("UIGradient")
-    NexusUI:BindColor(g, "Color", function()
-        return ColorSequence.new({
-            ColorSequenceKeypoint.new(0, ACCENT:Lerp(COLOR_BORDER, 0.35)),
-            ColorSequenceKeypoint.new(0.5, COLOR_BORDER),
-            ColorSequenceKeypoint.new(1, ACCENT:Lerp(COLOR_BORDER, 0.7)),
-        })
+    return bind(new("UIGradient", {Rotation = 35}), "Color", function()
+        return ColorSequence.new({ColorSequenceKeypoint.new(0, COLOR_BORDER:Lerp(COLOR_TEXT, 0.14)), ColorSequenceKeypoint.new(0.5, COLOR_BORDER), ColorSequenceKeypoint.new(1, COLOR_BORDER:Lerp(COLOR_WINDOW, 0.3))})
     end)
-    g.Rotation = 35
-    return g
 end
 
-
--- Whole GUI uses Michroma, max size 11, uppercase. Applied automatically to every
--- text object under a styled root, including text that changes later.
--- Objects with the "KeepFont" attribute (and pure symbols like ✓ › ◢) are left alone.
 local TEXT_FONT = Font.new(FONT_TITLE, Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-local TEXT_MAX_SIZE = 11
+local TEXT_MAX_SIZE = TS
 
 local function styleText(obj)
     local isBox = obj:IsA("TextBox")
@@ -370,11 +403,11 @@ GUI_OVERLAY_TRANSPARENCY = 0
 GUI_DISABLED_TRANSPARENCY = 0.78
 
 local themes = {
-    Noir = {{255,255,255},{1,1,2},{5,5,6},{8,8,9},{13,13,14},{43,43,47},{248,248,248},{125,125,132},{0,0,0}},
-    Arctic = {{105,213,255},{8,17,28},{12,26,41},{15,32,49},{20,42,62},{60,107,138},{234,248,255},{143,181,202},{6,20,30}},
-    Amethyst = {{197,149,255},{20,12,31},{29,18,44},{35,22,51},{46,30,66},{104,73,137},{249,239,255},{183,155,207},{24,11,37}},
-    Emerald = {{102,237,174},{8,23,19},{12,32,27},{16,40,33},{23,50,42},{59,115,92},{233,255,244},{139,184,162},{5,28,19}},
-    Crimson = {{255,130,149},{28,11,18},{39,17,26},{48,21,32},{61,28,41},{132,63,83},{255,238,243},{203,149,165},{35,8,18}},
+    Noir = {{255,255,255},{9,9,12},{12,12,16},{9,9,12},{24,25,31},{50,52,60},{236,238,243},{163,168,180},{0,0,0},{170,172,180}},
+    Arctic = {{105,213,255},{8,17,28},{12,26,41},{15,32,49},{20,42,62},{60,107,138},{234,248,255},{143,181,202},{6,20,30},{214,240,255}},
+    Amethyst = {{197,149,255},{20,12,31},{29,18,44},{35,22,51},{46,30,66},{104,73,137},{249,239,255},{183,155,207},{24,11,37},{255,205,235}},
+    Emerald = {{102,237,174},{8,23,19},{12,32,27},{16,40,33},{23,50,42},{59,115,92},{233,255,244},{139,184,162},{5,28,19},{225,255,190}},
+    Crimson = {{255,130,149},{28,11,18},{39,17,26},{48,21,32},{61,28,41},{132,63,83},{255,238,243},{203,149,165},{35,8,18},{255,214,170}},
 }
 local bindings = setmetatable({}, {__mode = "k"})
 local colorRoles = {}
@@ -384,7 +417,7 @@ local function setPalette(name)
     local t = themes[name]
     local colors = {}
     for i,v in ipairs(t) do colors[i] = Color3.fromRGB(v[1],v[2],v[3]) end
-    ACCENT,COLOR_WINDOW,COLOR_TOPBAR,COLOR_GROUP,COLOR_CONTROL,COLOR_BORDER,COLOR_TEXT,COLOR_TEXT_DIM,COLOR_ON_ACCENT = unpack(colors)
+    ACCENT,COLOR_WINDOW,COLOR_TOPBAR,COLOR_GROUP,COLOR_CONTROL,COLOR_BORDER,COLOR_TEXT,COLOR_TEXT_DIM,COLOR_ON_ACCENT,ACCENT2 = unpack(colors)
     NexusUI.Palette = colors
     table.clear(colorRoles)
     for i,v in ipairs(colors) do if not colorRoles[v] then colorRoles[v] = i end end
@@ -3771,7 +3804,7 @@ function CreateClickButton(parent, text, size, position, bgColor, textColor, fon
     label.Parent = button
 
     local buttonCorner = Instance.new("UICorner")
-    buttonCorner.CornerRadius = UDim.new(0, 0)
+    buttonCorner.CornerRadius = UDim.new(0, 6)
     buttonCorner.Parent = button
 
     local defaultBackground = button.BackgroundColor3
@@ -3910,55 +3943,19 @@ function NexusUI:CreateWindow(options)
     bindCamera()
 
 
-    local mainCorner = Instance.new("UICorner")
+    local mainCorner = corner(mainFrame, 12)
     mainCorner.Name = "NexusMainCorner"
-    mainCorner.CornerRadius = UDim.new(0, 10)
-    mainCorner.Parent = mainFrame
-
-    local mainStroke = Instance.new("UIStroke")
-    mainStroke.Name = "NexusMainStroke"
-    mainStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    mainStroke.Color = Color3.new(1, 1, 1)
-    mainStroke.Transparency = 0.1
-    mainStroke.Thickness = 1.2
-    mainStroke.LineJoinMode = Enum.LineJoinMode.Round
-    mainStroke.Parent = mainFrame
+    local mainStroke = new("UIStroke", {Name = "NexusMainStroke", ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Color = WHITE, Thickness = 1, LineJoinMode = Enum.LineJoinMode.Round}, mainFrame)
     borderGradient().Parent = mainStroke
-
-    local innerClip = Instance.new("Frame")
-    innerClip.Name = "InnerClip"
-    innerClip.Size = UDim2.new(1, 0, 1, 0)
-    innerClip.BackgroundTransparency = 1
-    innerClip.BorderSizePixel = 0
-    innerClip.ClipsDescendants = true
-    innerClip.Parent = mainFrame
-
-    local innerCorner = Instance.new("UICorner")
-    innerCorner.CornerRadius = UDim.new(0, 10)
-    innerCorner.Parent = innerClip
-
-    -- Soft light sheen across the top-left, like a glass panel.
-    local sheen = Instance.new("Frame")
-    sheen.Name = "Sheen"
-    sheen.Size = UDim2.fromScale(1, 1)
-    sheen.BackgroundColor3 = Color3.new(1, 1, 1)
-    sheen.BorderSizePixel = 0
-    sheen.ZIndex = 1
-    sheen.Parent = innerClip
-    local sheenCorner = Instance.new("UICorner")
-    sheenCorner.CornerRadius = UDim.new(0, 10)
-    sheenCorner.Parent = sheen
-    local sheenGradient = Instance.new("UIGradient")
-    sheenGradient.Rotation = 35
-    sheenGradient.Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 0.93),
-        NumberSequenceKeypoint.new(0.3, 0.985),
-        NumberSequenceKeypoint.new(0.85, 1),
-        NumberSequenceKeypoint.new(1, 0.97),
-    })
-    sheenGradient.Parent = sheen
-
+    new("ImageLabel", {Name = "Shadow", Image = shadowAsset or "", ImageColor3 = Color3.new(), ScaleType = Enum.ScaleType.Slice, SliceCenter = Rect.new(42, 42, 50, 50), SliceScale = 2, Size = UDim2.new(1, 88, 1, 88), Position = UDim2.fromOffset(-44, -44), BackgroundTransparency = 1, Active = false, ZIndex = 0}, mainFrame)
+    local innerClip = new("Frame", {Name = "InnerClip", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true}, mainFrame)
+    corner(innerClip, 12)
     createImageBackground(innerClip)
+    local shade = bind(new("Frame", {Name = "Shade", Size = UDim2.fromScale(1, 1), BorderSizePixel = 0, ZIndex = 2}, innerClip), "BackgroundColor3", function() return Color3.fromRGB(9, 9, 12) end)
+    corner(shade, 12)
+    new("UIGradient", {Rotation = 90, Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(0.21, 1), NumberSequenceKeypoint.new(0.87, 1), NumberSequenceKeypoint.new(1, 0.5)})}, shade)
+    bind(new("UIGradient", {Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.1, 0.3), NumberSequenceKeypoint.new(0.3, 0.25), NumberSequenceKeypoint.new(0.6, 1), NumberSequenceKeypoint.new(1, 1)})},
+        new("Frame", {Name = "Edge", Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 6}, innerClip)), "Color", function() return ColorSequence.new(ACCENT2, ACCENT) end)
 
     local animationDuration = 0.18
     local function animateWindowIn()
@@ -4000,37 +3997,9 @@ function NexusUI:CreateWindow(options)
         end)
     end
 
-    local topBarHeight = 46
-    local topBar = Instance.new("Frame")
-    topBar.Name = "TopBar"
-    topBar.Size = UDim2.new(1, 0, 0, topBarHeight)
-    topBar.Position = UDim2.new(0, 0, 0, 0)
-    topBar.BackgroundTransparency = 1
-    topBar.BorderSizePixel = 0
-    topBar.ZIndex = 4
-    topBar.Active = true
-    topBar.Parent = innerClip
-
-    local topBarCorner = Instance.new("UICorner")
-    topBarCorner.CornerRadius = UDim.new(0, 10)
-    topBarCorner.Parent = topBar
-
-    -- Hairline divider that fades out toward both edges.
-    local topBarDivider = Instance.new("Frame")
-    topBarDivider.Size = UDim2.new(1, -28, 0, 1)
-    topBarDivider.Position = UDim2.new(0, 14, 1, -1)
-    topBarDivider.BackgroundColor3 = Color3.fromRGB(120, 120, 126)
-    topBarDivider.BorderSizePixel = 0
-    topBarDivider.ZIndex = 3
-    topBarDivider.Parent = topBar
-    local dividerGradient = Instance.new("UIGradient")
-    dividerGradient.Transparency = NumberSequence.new({
-        NumberSequenceKeypoint.new(0, 1),
-        NumberSequenceKeypoint.new(0.2, 0.55),
-        NumberSequenceKeypoint.new(0.8, 0.55),
-        NumberSequenceKeypoint.new(1, 1),
-    })
-    dividerGradient.Parent = topBarDivider
+    local topBarHeight = 44
+    local topBar = new("Frame", {Name = "TopBar", Size = UDim2.new(1, 0, 0, topBarHeight), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 4, Active = true}, innerClip)
+    bind(new("Frame", {Size = UDim2.new(1, 0, 0, 1), Position = UDim2.new(0, 0, 1, -1), BackgroundTransparency = 0.925, BorderSizePixel = 0, ZIndex = 3}, topBar), "BackgroundColor3", textColor)
 
     local logoContainer = Instance.new("Frame")
     logoContainer.Name = "LogoContainer"
@@ -4079,84 +4048,16 @@ function NexusUI:CreateWindow(options)
         RegisterUnloadCallback(function() spin:Cancel() flash:Cancel() end)
     end
 
-    local logoSubtitle = Instance.new("TextLabel")
-    logoSubtitle.Name = "PrimeSubtitle"
-    logoSubtitle.Size = UDim2.new(0, 0, 0, 18)
-    logoSubtitle.AutomaticSize = Enum.AutomaticSize.X
-    logoSubtitle.LayoutOrder = 2
-    logoSubtitle.BackgroundTransparency = 1
-
-    local isPremiumUser = IS_PREMIUM_USER
-
-    logoSubtitle.Text = isPremiumUser and "PREMIUM" or "FREEMIUM"
-    NexusUI:BindColor(logoSubtitle, "TextColor3", function() return Color3.new(1, 1, 1) end)
-    logoSubtitle.TextXAlignment = Enum.TextXAlignment.Left
-    logoSubtitle.TextYAlignment = Enum.TextYAlignment.Center
-
-    logoSubtitle.FontFace = Font.new(FONT_TITLE, Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-    logoSubtitle.TextSize = 11
-    logoSubtitle.ZIndex = 3
-    logoSubtitle.Parent = logoContainer
-    local sh = Instance.new("UIGradient")
-    sh.Color = isPremiumUser and ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(210, 145, 35)),
-        ColorSequenceKeypoint.new(0.35, Color3.fromRGB(255, 230, 142)),
-        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 248, 211)),
-        ColorSequenceKeypoint.new(0.65, Color3.fromRGB(255, 230, 142)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(210, 145, 35))
-    }) or ColorSequence.new({
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(157, 195, 255)),
-        ColorSequenceKeypoint.new(0.2, Color3.fromRGB(194, 169, 255)),
-        ColorSequenceKeypoint.new(0.4, Color3.fromRGB(255, 192, 230)),
-        ColorSequenceKeypoint.new(0.6, Color3.fromRGB(236, 247, 255)),
-        ColorSequenceKeypoint.new(0.8, Color3.fromRGB(165, 232, 255)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(157, 195, 255))
-    })
-    sh.Offset = Vector2.new(-1,0)
-    sh.Parent = logoSubtitle
     do
-        local dock = Instance.new("Frame")
-        dock.Name = "PlayerAccountDock"
-        dock.Position = UDim2.new(0, 14, 0, topBarHeight + 4)
-        dock.Size = UDim2.fromOffset(222, 44)
-        dock.BackgroundTransparency = 1
-        dock.BorderSizePixel = 0
-        dock.ClipsDescendants = true
-        dock.ZIndex = 5
-        dock.Parent = innerClip
-
-        local content = Instance.new("Frame")
-        content.Name = "AccountContent"
-        content.Size = UDim2.fromScale(1, 1)
-        content.BackgroundTransparency = 1
-        content.ZIndex = 6
-        content.Parent = dock
-
-        local badge = Instance.new("Frame")
-        badge.Name = "AccountBadge"
-        badge.Size = UDim2.fromOffset(34, 34)
-        badge.Position = UDim2.fromOffset(0, 5)
-        badge.BorderSizePixel = 0
-        badge.BackgroundTransparency = 1
-        badge.ZIndex = 6
-        badge.Parent = content
-        badge.BackgroundTransparency = 1
-        badge.ClipsDescendants = false
-        local avatar = Instance.new("ViewportFrame")
-        avatar.Name = "PlayerHeadshot"
-        avatar.BackgroundTransparency = 1
-        avatar.BorderSizePixel = 0
-        avatar.Size = UDim2.fromScale(1, 1)
-        avatar.Ambient = Color3.fromRGB(220, 220, 220)
-        avatar.LightColor = Color3.new(1, 1, 1)
-        avatar.LightDirection = Vector3.new(-1, -1, -2)
-        avatar.ZIndex = 7
-        avatar.Parent = badge
-        local portraitWorld = Instance.new("WorldModel")
-        portraitWorld.Parent = avatar
-        local portraitCamera = Instance.new("Camera")
-        portraitCamera.FieldOfView = 32
-        portraitCamera.Parent = avatar
+        local dock = new("Frame", {Name = "PlayerAccountDock", Position = UDim2.fromOffset(16, topBarHeight), Size = UDim2.new(1, -32, 0, 42), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 5}, innerClip)
+        new("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 9), SortOrder = Enum.SortOrder.LayoutOrder}, dock)
+        local badge = bind(new("Frame", {Name = "AccountBadge", Size = UDim2.fromOffset(28, 28), BorderSizePixel = 0, LayoutOrder = 1, ZIndex = 6}, dock), "BackgroundColor3", function() return COLOR_CONTROL end)
+        corner(badge, 99)
+        stroke(badge, 0.82)
+        local avatar = new("ViewportFrame", {Name = "PlayerHeadshot", BackgroundTransparency = 1, BorderSizePixel = 0, Size = UDim2.fromScale(1, 1), Ambient = Color3.fromRGB(220, 220, 220), LightColor = WHITE, LightDirection = Vector3.new(-1, -1, -2), ZIndex = 7}, badge)
+        corner(avatar, 99)
+        local portraitWorld = new("WorldModel", {}, avatar)
+        local portraitCamera = new("Camera", {FieldOfView = 32}, avatar)
         avatar.CurrentCamera = portraitCamera
         local portraitGeneration = 0
 
@@ -4222,39 +4123,30 @@ function NexusUI:CreateWindow(options)
         TrackGuiConnection(LocalPlayer.CharacterAppearanceLoaded:Connect(updatePortrait))
         TrackGuiConnection(avatar.Destroying:Connect(function() portraitGeneration += 1 end))
 
-        local username = Instance.new("TextLabel")
-        username.Name = "PlayerUsername"
-        username.BackgroundTransparency = 1
-        username.Position = UDim2.fromOffset(44, 2)
-        username.Size = UDim2.new(1, -44, 0, 20)
-        username.Text = "@" .. LocalPlayer.Name
-        username.FontFace = Font.new(FONT_BODY, Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-        username.TextSize = 13
-        username.TextXAlignment = Enum.TextXAlignment.Left
-        username.TextYAlignment = Enum.TextYAlignment.Center
-        username.TextTruncate = Enum.TextTruncate.AtEnd
-        username.ZIndex = 7
-        NexusUI:BindColor(username, "TextColor3", function() return COLOR_TEXT end)
-        username.Parent = content
-
-        logoSubtitle.AutomaticSize = Enum.AutomaticSize.None
-        logoSubtitle.Position = UDim2.fromOffset(44, 23)
-        logoSubtitle.Size = UDim2.new(1, -44, 0, 18)
-        logoSubtitle.Text = isPremiumUser and "Premium" or "Freemium"
-        logoSubtitle.TextSize = 11
-        logoSubtitle.ZIndex = 7
-        logoSubtitle.Parent = content
-        local tierShine = TweenService:Create(sh, TweenInfo.new(2.6, Enum.EasingStyle.Linear,
-            Enum.EasingDirection.InOut, -1), {Offset = Vector2.new(1, 0)})
+        caption(dock, {Name = "PlayerUsername", Size = UDim2.fromOffset(0, 20), AutomaticSize = Enum.AutomaticSize.X, Text = "@" .. LocalPlayer.Name, TextSize = TS, LayoutOrder = 2, ZIndex = 7})
+        local tierColor = IS_PREMIUM_USER and function() return Color3.fromRGB(255, 214, 110) end or accentColor
+        local pill = bind(new("Frame", {Name = "TierPill", Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, BackgroundTransparency = 0.87, BorderSizePixel = 0, LayoutOrder = 3, ZIndex = 6}, dock), "BackgroundColor3", tierColor)
+        corner(pill, 5)
+        stroke(pill, 0.7, tierColor)
+        new("UIPadding", {PaddingLeft = UDim.new(0, 7), PaddingRight = UDim.new(0, 7)}, pill)
+        local tier = new("TextLabel", {Name = "PrimeSubtitle", BackgroundTransparency = 1, Size = UDim2.new(0, 0, 1, 0), AutomaticSize = Enum.AutomaticSize.X, Text = IS_PREMIUM_USER and "Premium" or "Freemium", TextColor3 = WHITE, TextSize = 9, ZIndex = 7}, pill)
+        local sh = new("UIGradient", {Offset = Vector2.new(-1, 0), Color = IS_PREMIUM_USER and ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(210, 145, 35)),
+            ColorSequenceKeypoint.new(0.35, Color3.fromRGB(255, 230, 142)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 248, 211)),
+            ColorSequenceKeypoint.new(0.65, Color3.fromRGB(255, 230, 142)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(210, 145, 35))
+        }) or ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(157, 195, 255)),
+            ColorSequenceKeypoint.new(0.2, Color3.fromRGB(194, 169, 255)),
+            ColorSequenceKeypoint.new(0.4, Color3.fromRGB(255, 192, 230)),
+            ColorSequenceKeypoint.new(0.6, Color3.fromRGB(236, 247, 255)),
+            ColorSequenceKeypoint.new(0.8, Color3.fromRGB(165, 232, 255)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(157, 195, 255))
+        })}, tier)
+        local tierShine = TweenService:Create(sh, TweenInfo.new(2.6, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, -1), {Offset = Vector2.new(1, 0)})
         tierShine:Play()
-        logoSubtitle.TextStrokeTransparency = 1
-
-        TrackGuiConnection(mainFrame:GetPropertyChangedSignal("Visible"):Connect(function()
-            dock.Visible = mainFrame.Visible
-        end))
-        TrackGuiConnection(screenGui.Destroying:Connect(function()
-            tierShine:Cancel()
-        end))
+        TrackGuiConnection(screenGui.Destroying:Connect(function() tierShine:Cancel() end))
     end
 
     local tabStrip = Instance.new("ScrollingFrame")
@@ -4304,7 +4196,7 @@ function NexusUI:CreateWindow(options)
         local tabSwipeHint = Instance.new("TextLabel")
         tabSwipeHint.Name = "TabSwipeHint"
         tabSwipeHint.Size = UDim2.new(1, -16, 0, mobileTabHintHeight)
-        tabSwipeHint.Position = UDim2.new(0, 8, 0, topBarHeight + 48)
+        tabSwipeHint.Position = UDim2.new(0, 8, 0, topBarHeight + 42)
         tabSwipeHint.BackgroundTransparency = 1
         tabSwipeHint.Text = "Swipe tabs left / right  ↔"
         NexusUI:BindColor(tabSwipeHint, "TextColor3", function() return COLOR_TEXT_DIM end)
@@ -4543,14 +4435,14 @@ function NexusUI:CreateWindow(options)
         dialog.Parent = closeConfirmGui
 
         local dialogCorner = Instance.new("UICorner")
-        dialogCorner.CornerRadius = UDim.new(0, 0)
+        dialogCorner.CornerRadius = UDim.new(0, 12)
         dialogCorner.Parent = dialog
 
         local dialogStroke = Instance.new("UIStroke")
         dialogStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
         dialogStroke.Color = Color3.new(1, 1, 1)
-        dialogStroke.Transparency = 0.1
-        dialogStroke.Thickness = 1.2
+        dialogStroke.Transparency = 0
+        dialogStroke.Thickness = 1
         dialogStroke.Parent = dialog
         borderGradient().Parent = dialogStroke
 
@@ -4797,62 +4689,33 @@ function NexusUI:CreateWindow(options)
         end
     end))
 
-    local content = Instance.new("Frame")
-    content.Size = UDim2.new(1, -16, 1, -(topBarHeight + 90 + mobileTabHintHeight))
-    content.Position = UDim2.new(0, 8, 0, topBarHeight + 54 + mobileTabHintHeight)
-    content.BackgroundTransparency = 1
-    content.ZIndex = 3
-    content.ClipsDescendants = true
-    content.Parent = innerClip
-
-    local cornerButtons = Instance.new("Frame")
-    cornerButtons.Name = "CornerButtons"
-    cornerButtons.Size = UDim2.new(0, 76, 0, 28)
-    cornerButtons.AnchorPoint = Vector2.new(1, 0)
-    cornerButtons.Position = UDim2.new(1, -8, 0, 9)
-    cornerButtons.BackgroundTransparency = 1
-    cornerButtons.BorderSizePixel = 0
-    cornerButtons.ZIndex = 8
-    cornerButtons.Parent = topBar
-
-    local cornerButtonsLayout = Instance.new("UIListLayout")
-    cornerButtonsLayout.FillDirection = Enum.FillDirection.Horizontal
-    cornerButtonsLayout.Padding = UDim.new(0, 8)
-    cornerButtonsLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    cornerButtonsLayout.Parent = cornerButtons
-
-    local statsFrame = Instance.new("Frame")
-    statsFrame.Name = "PerformanceStats"
-    statsFrame.Size = UDim2.fromOffset(170, 26)
-    statsFrame.Position = UDim2.new(0, 10, 1, -36)
-    statsFrame.BackgroundTransparency = 1
-    statsFrame.BorderSizePixel = 0
-    statsFrame.ZIndex = 6
-    statsFrame.Parent = innerClip
-
-    local statsLabel = Instance.new("TextLabel")
-    statsLabel.Size = UDim2.new(1, -12, 1, 0)
-    statsLabel.Position = UDim2.fromOffset(6, 0)
-    statsLabel.BackgroundTransparency = 1
-    statsLabel.Text = "FPS  --    PING  -- ms"
-    NexusUI:BindColor(statsLabel, "TextColor3", function() return COLOR_TEXT_DIM end)
-    statsLabel.FontFace = Font.new(FONT_BODY, Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-    statsLabel.TextSize = 12
-    statsLabel.TextXAlignment = Enum.TextXAlignment.Left
-    statsLabel.ZIndex = 7
-    statsLabel.Parent = statsFrame
-
+    local footer = 28
+    local content = new("Frame", {Size = UDim2.new(1, -32, 1, -(topBarHeight + 54 + footer + mobileTabHintHeight)), Position = UDim2.fromOffset(16, topBarHeight + 42 + mobileTabHintHeight), BackgroundTransparency = 1, ZIndex = 3, ClipsDescendants = true}, innerClip)
+    local cornerButtons = new("Frame", {Name = "CornerButtons", Size = UDim2.fromOffset(58, 24), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -10, 0.5, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 8}, topBar)
+    new("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder}, cornerButtons)
+    local statsFrame = new("Frame", {Name = "PerformanceStats", Size = UDim2.new(1, 0, 0, footer), Position = UDim2.new(0, 0, 1, -footer), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 6}, innerClip)
+    bind(new("Frame", {Size = UDim2.new(1, 0, 0, 1), Position = UDim2.new(0, 0, 1, -footer), BackgroundTransparency = 0.93, BorderSizePixel = 0, ZIndex = 6}, innerClip), "BackgroundColor3", textColor)
+    new("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder}, statsFrame)
+    new("UIPadding", {PaddingLeft = UDim.new(0, 18)}, statsFrame)
+    local function stat(title, order)
+        local dot = new("Frame", {Size = UDim2.fromOffset(5, 5), BackgroundColor3 = GOOD, BorderSizePixel = 0, LayoutOrder = order, ZIndex = 7}, statsFrame)
+        corner(dot, 99)
+        local glow = icon("glow", 15, 15, GOOD, dot)
+        caption(statsFrame, {Size = UDim2.new(0, 0, 1, 0), AutomaticSize = Enum.AutomaticSize.X, Text = title, TextSize = 11, LayoutOrder = order + 1, ZIndex = 7}, dimText)
+        local value = caption(statsFrame, {Size = UDim2.new(0, 0, 1, 0), AutomaticSize = Enum.AutomaticSize.X, Text = "--", FontFace = TEXT_FONT, TextSize = 11, LayoutOrder = order + 2, ZIndex = 7})
+        new("Frame", {Size = UDim2.fromOffset(6, 1), BackgroundTransparency = 1, LayoutOrder = order + 3}, statsFrame)
+        return function(shown, color) value.Text, dot.BackgroundColor3, glow.ImageColor3 = shown, color, color end
+    end
+    local setFps, setPing = stat("FPS", 1), stat("PING", 5)
     local frames, sampleTime = 0, 0
     track(RunService.RenderStepped:Connect(function(dt)
         frames += 1
         sampleTime += dt
         if sampleTime < 0.5 then return end
-        local fps = math.floor(frames / sampleTime + 0.5)
-        local ping = 0
-        pcall(function()
-            ping = math.floor(LocalPlayer:GetNetworkPing() * 1000 + 0.5)
-        end)
-        statsLabel.Text = string.format("FPS  %d    PING  %d ms", fps, ping)
+        local fps, ping = math.floor(frames / sampleTime + 0.5), 0
+        pcall(function() ping = math.floor(LocalPlayer:GetNetworkPing() * 1000 + 0.5) end)
+        setFps(tostring(fps), ACCENT)
+        setPing(ping .. " MS", ACCENT)
         frames, sampleTime = 0, 0
     end))
 
@@ -4904,42 +4767,20 @@ function NexusUI:CreateWindow(options)
         end))
     end
 
-    local function createCornerButton(text, order)
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(0, 34, 0, 28)
-        btn.BackgroundTransparency = 1
-        btn.BorderSizePixel = 0
-        btn.Text = text
-        NexusUI:BindColor(btn, "TextColor3", function() return COLOR_TEXT end)
-        btn.FontFace = Font.new("rbxasset://fonts/families/GothamSSm.json", Enum.FontWeight.Bold, Enum.FontStyle.Normal)
-        btn.TextSize = 16
-        btn.AutoButtonColor = false
-        btn.LayoutOrder = order
-        btn.ZIndex = 9
-        btn:SetAttribute("KeepFont", true)
-        btn.Parent = cornerButtons
-
-        TrackGuiConnection(btn.MouseEnter:Connect(function()
-            TweenService:Create(btn, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {TextColor3 = COLOR_TEXT}):Play()
-        end))
-        TrackGuiConnection(btn.MouseLeave:Connect(function()
-            TweenService:Create(btn, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {TextColor3 = COLOR_TEXT}):Play()
-        end))
+    local function createCornerButton(name, fallback, order)
+        local btn = bind(new("TextButton", {Size = UDim2.fromOffset(26, 24), BackgroundTransparency = 0.945, BorderSizePixel = 0, Text = atlas and "" or fallback, TextSize = TS, AutoButtonColor = false, LayoutOrder = order, ZIndex = 9}, cornerButtons), "BackgroundColor3", textColor)
+        bind(btn, "TextColor3", textColor)
+        corner(btn, 7)
+        stroke(btn, 0.92)
+        icon(name, 12, 12, textColor, btn).ZIndex = 9
+        TrackGuiConnection(btn.MouseEnter:Connect(function() TweenService:Create(btn, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {BackgroundTransparency = 0.87}):Play() end))
+        TrackGuiConnection(btn.MouseLeave:Connect(function() TweenService:Create(btn, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {BackgroundTransparency = 0.945}):Play() end))
         return btn
     end
-
-    local HIDE_GUI_SYMBOL = "―"
-    local CLOSE_GUI_SYMBOL = "X"
-
-    local hideCornerButton = createCornerButton(HIDE_GUI_SYMBOL, 1)
-    ConnectClick(hideCornerButton, function()
-        setVisible(false)
-    end)
-
-    local closeCornerButton = createCornerButton(CLOSE_GUI_SYMBOL, 2)
-    ConnectClick(closeCornerButton, function()
-        createCloseConfirm()
-    end)
+    local hideCornerButton = createCornerButton("minus", "-", 1)
+    ConnectClick(hideCornerButton, function() setVisible(false) end)
+    local closeCornerButton = createCornerButton("close", "X", 2)
+    ConnectClick(closeCornerButton, function() createCloseConfirm() end)
 
     local tabs = {}
     local currentTab = nil
@@ -4951,11 +4792,9 @@ function NexusUI:CreateWindow(options)
         for i, tab in ipairs(tabs) do
             local selected = (i == index)
             if tab.underline then
-                tab.underline.Visible = selected
+                tab.underline.BackgroundTransparency, tab.underline.glow.ImageTransparency = selected and 0 or 1, selected and 0.3 or 1
             end
-            if tab.label then
-                NexusUI:BindColor(tab.label, "TextColor3", function() return selected and ACCENT or COLOR_TEXT_DIM end)
-            end
+            if tab.label then bind(tab.label, "TextColor3", selected and textColor or dimColor) end
             tab.page.Visible = selected
             tab.page.GroupTransparency = 0
             tab.page.Position = UDim2.fromOffset(0,0)
@@ -4984,66 +4823,18 @@ function NexusUI:CreateWindow(options)
     end
 
     function window:AddTab(tabData)
-        local tabButton = Instance.new("TextButton")
-        tabButton.Size = UDim2.new(0, 0, 1, -8)
-        tabButton.AutomaticSize = Enum.AutomaticSize.X
-        tabButton.BackgroundTransparency = 1
-        tabButton.Text = string.upper(tostring(tabData and tabData.Title or "Tab"))
-        NexusUI:BindColor(tabButton, "TextColor3", function() return COLOR_TEXT_DIM end)
-        tabButton.FontFace = Font.new(FONT_TITLE, Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-        tabButton.TextSize = 11
-        tabButton.AutoButtonColor = false
-        tabButton.LayoutOrder = #tabs + 1
-        tabButton.ZIndex = 4
-        tabButton.Parent = tabStrip
-
-        local tabButtonPadding = Instance.new("UIPadding")
-        tabButtonPadding.PaddingLeft = UDim.new(0, 7)
-        tabButtonPadding.PaddingRight = UDim.new(0, 7)
-        tabButtonPadding.Parent = tabButton
-
+        local right = tabData and tabData.Badge and 30 or 7
+        local tabButton = bind(new("TextButton", {Size = UDim2.new(0, 0, 1, -8), AutomaticSize = Enum.AutomaticSize.X, BackgroundTransparency = 1, Text = string.upper(tostring(tabData and tabData.Title or "Tab")), TextSize = 11, AutoButtonColor = false, LayoutOrder = #tabs + 1, ZIndex = 4}, tabStrip), "TextColor3", dimColor)
+        new("UIPadding", {PaddingLeft = UDim.new(0, 7), PaddingRight = UDim.new(0, right)}, tabButton)
         local tabLabel = tabButton
-
-        local tabUnderline = Instance.new("Frame")
-        tabUnderline.Size = UDim2.new(1, -8, 0, 2)
-        tabUnderline.Position = UDim2.new(0, 4, 1, 3)
-        NexusUI:BindColor(tabUnderline, "BackgroundColor3", function() return ACCENT end)
-        tabUnderline.BorderSizePixel = 0
-        tabUnderline.Visible = false
-        tabUnderline.ZIndex = 4
-        tabUnderline.Parent = tabButton
-        local tabUnderlineCorner = Instance.new("UICorner")
-        tabUnderlineCorner.CornerRadius = UDim.new(0, 0)
-        tabUnderlineCorner.Parent = tabUnderline
-
-        -- Small green superscript badge, e.g. "NEW" on recently updated tabs.
-        if tabData and tabData.Badge then
-            tabButtonPadding.PaddingRight = UDim.new(0, 30)
-            local badge = Instance.new("TextLabel")
-            badge.Name = "TabBadge"
-            badge.Size = UDim2.fromOffset(26, 10)
-            badge.Position = UDim2.new(1, 2, 0.5, -11)
-            badge.BackgroundTransparency = 1
-            badge.Text = tostring(tabData.Badge)
-            badge.TextColor3 = Color3.fromRGB(70, 220, 120)
-            badge.FontFace = TEXT_FONT
-            badge.TextSize = 7
-            badge.TextXAlignment = Enum.TextXAlignment.Left
-            badge.ZIndex = 5
-            badge.Parent = tabButton
+        local tabUnderline = bind(new("Frame", {Size = UDim2.new(1, -8, 0, 2), Position = UDim2.new(0, 4, 1, 3), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 4}, tabButton), "BackgroundColor3", accentColor)
+        local tabGlow = icon("glow", 0, 12, accentColor, tabUnderline)
+        tabGlow.Size, tabGlow.ImageTransparency = UDim2.new(1, 0, 0, 12), 1
+        if right > 7 then
+            new("TextLabel", {Name = "TabBadge", Size = UDim2.fromOffset(26, 10), Position = UDim2.new(1, 2, 0.5, -11), BackgroundTransparency = 1, Text = tostring(tabData.Badge), TextColor3 = GOOD, FontFace = TEXT_FONT, TextSize = 7, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 5}, tabButton)
         end
-
-        TrackGuiConnection(tabButton.MouseEnter:Connect(function()
-            if not tabUnderline.Visible then
-                NexusUI:BindColor(tabButton, "TextColor3", function() return COLOR_TEXT end)
-            end
-        end))
-
-        TrackGuiConnection(tabButton.MouseLeave:Connect(function()
-            if not tabUnderline.Visible then
-                NexusUI:BindColor(tabButton, "TextColor3", function() return COLOR_TEXT_DIM end)
-            end
-        end))
+        TrackGuiConnection(tabButton.MouseEnter:Connect(function() if tabUnderline.BackgroundTransparency == 1 then bind(tabButton, "TextColor3", textColor) end end))
+        TrackGuiConnection(tabButton.MouseLeave:Connect(function() if tabUnderline.BackgroundTransparency == 1 then bind(tabButton, "TextColor3", dimColor) end end))
 
         local tabPage = Instance.new("CanvasGroup")
         tabPage.Size = UDim2.new(1, 0, 1, 0)
@@ -5055,33 +4846,20 @@ function NexusUI:CreateWindow(options)
         tabPage.Parent = content
 
         local function createColumn(position)
-            local column = Instance.new("ScrollingFrame")
-            column.Size = UDim2.new(0.5, -4, 1, 0)
-            column.Position = position
-            column.BackgroundTransparency = 1
-            column.BorderSizePixel = 0
-            column.ScrollBarThickness = 3
-            NexusUI:BindColor(column, "ScrollBarImageColor3", function() return COLOR_BORDER end)
-            column.AutomaticCanvasSize = Enum.AutomaticSize.Y
-            column.CanvasSize = UDim2.new(0, 0, 0, 0)
-            column.Parent = tabPage
-
-            local columnLayout = Instance.new("UIListLayout")
-            columnLayout.Padding = UDim.new(0, 8)
-            columnLayout.SortOrder = Enum.SortOrder.LayoutOrder
-            columnLayout.Parent = column
-
+            local column = bind(new("ScrollingFrame", {Size = UDim2.new(0.5, -6, 1, 0), Position = position, BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageTransparency = 0.3, VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar, AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new()}, tabPage), "ScrollBarImageColor3", function() return COLOR_BORDER end)
+            new("UIListLayout", {Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder}, column)
+            new("UIPadding", {PaddingLeft = UDim.new(0, 1), PaddingRight = UDim.new(0, 1), PaddingTop = UDim.new(0, 1), PaddingBottom = UDim.new(0, 1)}, column)
             return column
         end
 
-        local leftColumn = createColumn(UDim2.new(0, 0, 0, 0))
-        local rightColumn = createColumn(UDim2.new(0.5, 4, 0, 0))
+        local leftColumn = createColumn(UDim2.new())
+        local rightColumn = createColumn(UDim2.new(0.5, 6, 0, 0))
         local arranging = false
         local function arrangeColumns()
             if arranging then return end
             arranging = true
             local narrow = mainFrame.Size.X.Offset < 540
-            leftColumn.Size = UDim2.new(narrow and 1 or 0.5, narrow and 0 or -4, 1, 0)
+            leftColumn.Size = UDim2.new(narrow and 1 or 0.5, narrow and 0 or -6, 1, 0)
             rightColumn.Visible = not narrow
             for i,column in ipairs({leftColumn,rightColumn}) do
                 for _,o in ipairs(column:GetChildren()) do
@@ -5107,81 +4885,41 @@ function NexusUI:CreateWindow(options)
         tabObject.Page = tabPage
         tabObject.Button = tabButton
 
+        local accents, lastKind = {}, {}
+        local function divider(parent, kind)
+            local last = lastKind[parent]
+            lastKind[parent] = kind
+            if not last or kind == "sub" or kind == "button" or last == "button" then return end
+            table.insert(controls, bind(new("Frame", {Name = "Line", Size = UDim2.new(1, 0, 0, 1), BackgroundTransparency = 0.955, BorderSizePixel = 0, LayoutOrder = #controls + 1}, parent), "BackgroundColor3", textColor))
+        end
+        local function createSection(title, side, order)
+            title = tostring(title)
+            local accent = accentColor
+            local group = bind(new("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 0.64, BorderSizePixel = 0, LayoutOrder = order}), "BackgroundColor3", function() return Color3.fromRGB(9, 9, 12) end)
+            group:SetAttribute("ColumnHome", side)
+            corner(group, 9)
+            stroke(group, 0.915)
+            new("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder}, group)
+            if title ~= "" then
+                local header = new("Frame", {Size = UDim2.new(1, 0, 0, 32), BackgroundTransparency = 1, ClipsDescendants = true, LayoutOrder = 0, ZIndex = 2}, group)
+                local tick = bind(new("Frame", {Size = UDim2.fromOffset(3, 10), Position = UDim2.new(0, 12, 0.5, -5), BorderSizePixel = 0, ZIndex = 3}, header), "BackgroundColor3", accent)
+                corner(tick, 2)
+                icon("glow", 15, 22, accent, tick).ImageTransparency = 0.35
+                caption(header, {Size = UDim2.new(1, -35, 1, 0), Position = UDim2.fromOffset(23, 0), Text = string.upper(title), TextSize = 11, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 3}, dimColor)
+                bind(new("Frame", {Size = UDim2.new(1, 0, 0, 1), Position = UDim2.new(0, 0, 1, -1), BackgroundTransparency = 0.93, BorderSizePixel = 0, ZIndex = 3}, header), "BackgroundColor3", textColor)
+            end
+            local sectionContent = new("Frame", {Name = "Content", Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = 1}, group)
+            new("UIListLayout", {SortOrder = Enum.SortOrder.LayoutOrder}, sectionContent)
+            new("UIPadding", {PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12), PaddingBottom = UDim.new(0, 3)}, sectionContent)
+            accents[sectionContent] = accent
+            group.Parent = side == 1 and leftColumn or rightColumn
+            return {Frame = group, Content = sectionContent}
+        end
+
         function tabObject:AddSection(title, column)
             sectionCount = sectionCount + 1
-            local side = column == "Right" and 2 or column == "Left" and 1 or (sectionCount % 2 == 1 and 1 or 2)
-            local parentColumn = side == 1 and leftColumn or rightColumn
-
-            local group = Instance.new("Frame")
-            group.Size = UDim2.new(1, 0, 0, 0)
-            group.AutomaticSize = Enum.AutomaticSize.Y
-            group.BackgroundTransparency = 1
-            group.BorderSizePixel = 0
-            group.LayoutOrder = sectionCount
-            group:SetAttribute("ColumnHome", side)
-            group.Parent = parentColumn
-
-            local groupLayout = Instance.new("UIListLayout")
-            groupLayout.SortOrder = Enum.SortOrder.LayoutOrder
-            groupLayout.Parent = group
-
-            -- Plain section title with a fading hairline under it (no panel, not collapsible).
-            local header = Instance.new("Frame")
-            header.Size = UDim2.new(1, 0, 0, 30)
-            header.BackgroundTransparency = 1
-            header.LayoutOrder = 0
-            header.ZIndex = 2
-            header.Parent = group
-
-            local headerLine = Instance.new("Frame")
-            headerLine.Size = UDim2.new(1, -4, 0, 1)
-            headerLine.Position = UDim2.new(0, 4, 1, -5)
-            headerLine.BackgroundColor3 = Color3.fromRGB(120, 120, 126)
-            headerLine.BorderSizePixel = 0
-            headerLine.ZIndex = 2
-            headerLine.Parent = header
-            local headerLineGradient = Instance.new("UIGradient")
-            headerLineGradient.Transparency = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, 0.45),
-                NumberSequenceKeypoint.new(1, 1),
-            })
-            headerLineGradient.Parent = headerLine
-
-            local headerTitle = Instance.new("TextLabel")
-            headerTitle.Size = UDim2.new(1, -8, 1, -6)
-            headerTitle.Position = UDim2.new(0, 4, 0, 0)
-            headerTitle.BackgroundTransparency = 1
-            headerTitle.Text = string.upper(tostring(title))
-            NexusUI:BindColor(headerTitle, "TextColor3", function() return COLOR_TEXT end)
-            headerTitle.FontFace = Font.new(FONT_TITLE, Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-            headerTitle.TextSize = 11
-            headerTitle.TextTruncate = Enum.TextTruncate.AtEnd
-            headerTitle.TextXAlignment = Enum.TextXAlignment.Left
-            headerTitle.ZIndex = 2
-            headerTitle.Parent = header
-
-            local sectionContent = Instance.new("Frame")
-            sectionContent.Name = "Content"
-            sectionContent.Size = UDim2.new(1, 0, 0, 0)
-            sectionContent.AutomaticSize = Enum.AutomaticSize.Y
-            sectionContent.BackgroundTransparency = 1
-            sectionContent.LayoutOrder = 1
-            sectionContent.Parent = group
-
-            local contentLayout = Instance.new("UIListLayout")
-            contentLayout.Padding = UDim.new(0, 5)
-            contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
-            contentLayout.Parent = sectionContent
-
-            local contentPadding = Instance.new("UIPadding")
-            contentPadding.PaddingLeft = UDim.new(0, 4)
-            contentPadding.PaddingRight = UDim.new(0, 6)
-            contentPadding.PaddingTop = UDim.new(0, 4)
-            contentPadding.PaddingBottom = UDim.new(0, 10)
-            contentPadding.Parent = sectionContent
-
-            currentSectionContent = sectionContent
-            local sectionObject = {Frame = group, Content = sectionContent}
+            local sectionObject = createSection(title, column == "Right" and 2 or column == "Left" and 1 or (sectionCount % 2 == 1 and 1 or 2), sectionCount)
+            currentSectionContent = sectionObject.Content
             return sectionObject
         end
 
@@ -5194,126 +4932,36 @@ function NexusUI:CreateWindow(options)
         end
 
         local function getControlParent()
-            return currentSectionContent or leftColumn
+            if not currentSectionContent then currentSectionContent = createSection("", 1, 0).Content end
+            return currentSectionContent
         end
 
         function tabObject:AddToggle(id, data)
-            local rowHeight = IS_MOBILE and 30 or 26
+            local parent = getControlParent()
+            local accent = accents[parent] or accentColor
+            divider(parent, "toggle")
+            local rowHeight = IS_MOBILE and 34 or 30
             local showDescription = data and data.ShowDescription == true
-            local toggleFrame = Instance.new("Frame")
-            toggleFrame.Size = UDim2.new(1, 0, 0, rowHeight)
-            if showDescription then toggleFrame.AutomaticSize = Enum.AutomaticSize.Y end
-            toggleFrame.BackgroundTransparency = 1
-            toggleFrame.Active = true
-            toggleFrame.LayoutOrder = #controls + 1
-            toggleFrame.BorderSizePixel = 0
-            toggleFrame.Parent = getControlParent()
-            local rowCorner = Instance.new("UICorner")
-            rowCorner.CornerRadius = UDim.new(0, 6)
-            rowCorner.Parent = toggleFrame
-
-
-            -- ON / OFF pill switch on the right side of the row.
-            local SWITCH_W = IS_MOBILE and 50 or 44
-            local SWITCH_H = IS_MOBILE and 22 or 20
-            local KNOB = SWITCH_H - 6
-            local SWITCH_ON = Color3.fromRGB(34, 150, 64)
-            local SWITCH_OFF = Color3.fromRGB(10, 10, 11)
-            local SWITCH_LOCKED = Color3.fromRGB(28, 28, 30)
-
-            local switch = Instance.new("Frame")
-            switch.Name = "Switch"
-            switch.AnchorPoint = Vector2.new(1, 0.5)
-            switch.Size = UDim2.fromOffset(SWITCH_W, SWITCH_H)
-            switch.Position = showDescription and UDim2.new(1, -8, 0, rowHeight / 2) or UDim2.new(1, -8, 0.5, 0)
-            switch.BackgroundColor3 = SWITCH_OFF
-            switch.BorderSizePixel = 0
-            switch.Parent = toggleFrame
-
-            local switchCorner = Instance.new("UICorner")
-            switchCorner.CornerRadius = UDim.new(0.5, 0)
-            switchCorner.Parent = switch
-
-            local switchStroke = Instance.new("UIStroke")
-            switchStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            switchStroke.Color = Color3.fromRGB(70, 70, 76)
-            switchStroke.Transparency = 0.25
-            switchStroke.Thickness = 1
-            switchStroke.Parent = switch
-
-            local switchText = Instance.new("TextLabel")
-            switchText.Name = "State"
-            switchText.BackgroundTransparency = 1
-            switchText.Size = UDim2.new(1, -(KNOB + 6), 1, 0)
-            switchText.Position = UDim2.fromOffset(KNOB + 4, 0)
-            switchText.Text = "OFF"
-            switchText.TextColor3 = Color3.fromRGB(235, 235, 240)
-            switchText.FontFace = TEXT_FONT
-            switchText.TextSize = 7
-            switchText.TextXAlignment = Enum.TextXAlignment.Center
-            switchText.ZIndex = 2
-            switchText.Parent = switch
-
-            local knob = Instance.new("Frame")
-            knob.Name = "Knob"
-            knob.AnchorPoint = Vector2.new(0, 0.5)
-            knob.Size = UDim2.fromOffset(KNOB, KNOB)
-            knob.Position = UDim2.new(0, 3, 0.5, 0)
-            knob.BackgroundColor3 = Color3.new(1, 1, 1)
-            knob.BorderSizePixel = 0
-            knob.ZIndex = 3
-            knob.Parent = switch
-
-            local knobCorner = Instance.new("UICorner")
-            knobCorner.CornerRadius = UDim.new(0.5, 0)
-            knobCorner.Parent = knob
-
-            local label = Instance.new("TextLabel")
-            label.Size = showDescription and UDim2.new(1, -(SWITCH_W + 24), 0, rowHeight)
-                or UDim2.new(1, -(SWITCH_W + 24), 1, 0)
-            label.Position = UDim2.new(0, 8, 0, 0)
-            label.BackgroundTransparency = 1
-            label.Text = data and data.Title or id
-            NexusUI:BindColor(label, "TextColor3", function() return COLOR_TEXT end)
-            label.FontFace = Font.new(FONT_BODY, Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-            label.TextSize = 15
-            label.TextXAlignment = Enum.TextXAlignment.Left
-            label.TextYAlignment = Enum.TextYAlignment.Center
-            label.Parent = toggleFrame
-
+            local SWITCH_W, SWITCH_H = IS_MOBILE and 38 or 30, IS_MOBILE and 20 or 16
+            local KNOB = SWITCH_H - 7
+            local toggleFrame = new("Frame", {Size = UDim2.new(1, 0, 0, rowHeight), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Active = true, LayoutOrder = #controls + 1, BorderSizePixel = 0}, parent)
+            local label = caption(toggleFrame, {Size = UDim2.new(1, -(SWITCH_W + 12), 0, showDescription and 27 or 0), AutomaticSize = showDescription and Enum.AutomaticSize.None or Enum.AutomaticSize.Y, Text = data and data.Title or id, TextSize = TS, TextWrapped = not showDescription, TextTruncate = showDescription and Enum.TextTruncate.AtEnd or Enum.TextTruncate.None})
             local descriptionLabel
             if showDescription then
-                descriptionLabel = Instance.new("TextLabel")
-                descriptionLabel.Name = "Description"
-                descriptionLabel.Size = UDim2.new(1, -4, 0, 0)
-                descriptionLabel.Position = UDim2.fromOffset(0, rowHeight + 2)
-                descriptionLabel.AutomaticSize = Enum.AutomaticSize.Y
-                descriptionLabel.BackgroundTransparency = 1
-                descriptionLabel.Text = tostring(data.Description or "")
-                descriptionLabel.TextWrapped = true
-                descriptionLabel.TextScaled = false
-                descriptionLabel.TextSize = 12
-                descriptionLabel.FontFace = Font.new(FONT_BODY, Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-                descriptionLabel.TextXAlignment = Enum.TextXAlignment.Left
-                descriptionLabel.TextYAlignment = Enum.TextYAlignment.Top
-                NexusUI:BindColor(descriptionLabel, "TextColor3", function() return data.DescriptionColor or COLOR_TEXT_DIM end)
-                descriptionLabel.Parent = toggleFrame
+                local warn = data.DescriptionColor ~= nil
+                descriptionLabel = caption(toggleFrame, {Name = "Description", Size = UDim2.new(1, -(SWITCH_W + (warn and 28 or 12)), 0, 0), Position = UDim2.fromOffset(warn and 16 or 0, 25), AutomaticSize = Enum.AutomaticSize.Y, Text = tostring(data.Description or ""), TextWrapped = true, TextSize = 9, TextYAlignment = Enum.TextYAlignment.Top}, function() return data.DescriptionColor or COLOR_TEXT_DIM end)
+                new("UIPadding", {PaddingBottom = UDim.new(0, 9)}, descriptionLabel)
+                if warn then icon("warn", 11, 11, function() return data.DescriptionColor end, toggleFrame).Position = UDim2.fromOffset(6, 30) end
+            else
+                new("UIPadding", {PaddingTop = UDim.new(0, math.floor((rowHeight - TS) / 2)), PaddingBottom = UDim.new(0, math.ceil((rowHeight - TS) / 2))}, label)
             end
-
-            local lockedBanner = Instance.new("TextLabel")
-            lockedBanner.Name = "LockedBanner"
-            lockedBanner.Size = UDim2.new(1, 0, 1, 0)
-            lockedBanner.BackgroundTransparency = 1
-            lockedBanner.Text = data and data.LockedText or ""
-            NexusUI:BindColor(lockedBanner, "TextColor3", function() return COLOR_TEXT_DIM end)
-            lockedBanner.FontFace = Font.new(FONT_BODY, Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-            lockedBanner.TextSize = 12
-            lockedBanner.TextXAlignment = Enum.TextXAlignment.Center
-            lockedBanner.TextYAlignment = Enum.TextYAlignment.Center
-            lockedBanner.TextTruncate = Enum.TextTruncate.AtEnd
-            lockedBanner.Visible = false
-            lockedBanner.ZIndex = 3
-            lockedBanner.Parent = toggleFrame
+            local lockedBanner = caption(toggleFrame, {Name = "LockedBanner", Size = UDim2.fromScale(1, 1), Text = data and data.LockedText or "", TextSize = 10, TextXAlignment = Enum.TextXAlignment.Center, TextTruncate = Enum.TextTruncate.AtEnd, Visible = false, ZIndex = 3}, dimColor)
+            local switch = new("Frame", {Name = "Switch", AnchorPoint = Vector2.new(1, 0.5), Size = UDim2.fromOffset(SWITCH_W, SWITCH_H), Position = UDim2.new(1, 0, 0.5, 0), BorderSizePixel = 0}, toggleFrame)
+            corner(switch, 99)
+            local switchStroke = stroke(switch, 0.86)
+            local glow = icon("glow", SWITCH_W + 18, SWITCH_H + 18, accent, switch)
+            local knob = new("Frame", {Name = "Knob", AnchorPoint = Vector2.new(0, 0.5), Size = UDim2.fromOffset(KNOB, KNOB), BorderSizePixel = 0, ZIndex = 3}, switch)
+            corner(knob, 99)
 
             local enabled = data and data.Default == true or false
             local locked = false
@@ -5339,22 +4987,17 @@ function NexusUI:CreateWindow(options)
 
             local function refresh(animated)
                 local on = enabled and not locked
-                setSwitch(switch, {BackgroundColor3 = locked and SWITCH_LOCKED or (on and SWITCH_ON or SWITCH_OFF)}, animated)
-                setSwitch(knob, {
-                    Position = on and UDim2.new(1, -(KNOB + 3), 0.5, 0) or UDim2.new(0, 3, 0.5, 0),
-                    BackgroundTransparency = locked and 0.55 or 0,
-                }, animated)
-                switchStroke.Transparency = on and 1 or 0.25
-                switchText.Text = on and "ON" or "OFF"
-                switchText.Position = on and UDim2.fromOffset(2, 0) or UDim2.fromOffset(KNOB + 4, 0)
-                switchText.TextTransparency = locked and 0.6 or 0
-                NexusUI:BindColor(label, "TextColor3", function() return locked and COLOR_TEXT_DIM or COLOR_TEXT end)
-
+                setSwitch(switch, {BackgroundColor3 = on and accent() or COLOR_TEXT, BackgroundTransparency = on and 0 or locked and 0.97 or 0.94}, animated)
+                setSwitch(knob, {Position = on and UDim2.new(1, -(KNOB + 3.5), 0.5, 0) or UDim2.new(0, 3.5, 0.5, 0), BackgroundColor3 = on and COLOR_ON_ACCENT or COLOR_TEXT_DIM:Lerp(COLOR_WINDOW, 0.15), BackgroundTransparency = locked and 0.55 or 0}, animated)
+                setSwitch(glow, {ImageTransparency = on and 0.5 or 1}, animated)
+                switchStroke.Transparency = on and 1 or 0.86
+                bind(label, "TextColor3", locked and dimColor or textColor)
                 lockedBanner.Visible = locked and lockedBanner.Text ~= ""
                 label.Visible = not lockedBanner.Visible
                 switch.Visible = not lockedBanner.Visible
             end
             refresh(false)
+            table.insert(NexusUI.ThemeRefresh, function() if toggleFrame.Parent then refresh(false) end end)
 
             function toggleOption:SetValue(value)
                 local newValue = value == true
@@ -5437,75 +5080,40 @@ function NexusUI:CreateWindow(options)
         end
 
         function tabObject:AddSlider(id, data)
-            local frame = Instance.new("Frame")
-            frame.Size = UDim2.new(1, 0, 0, 34)
-            frame.BackgroundTransparency = 1
-            frame.LayoutOrder = #controls + 1
-            frame.BorderSizePixel = 0
-            frame.Parent = getControlParent()
-
-            local label = Instance.new("TextLabel")
-            label.Size = UDim2.new(1, -50, 0, 14)
-            label.Position = UDim2.new(0, 0, 0, 0)
-            label.BackgroundTransparency = 1
-            label.Text = data and data.Title or id
-            NexusUI:BindColor(label, "TextColor3", function() return COLOR_TEXT end)
-            label.FontFace = Font.new(FONT_BODY, Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-            label.TextSize = 15
-            label.TextXAlignment = Enum.TextXAlignment.Left
-            label.Parent = frame
-
-            local valueLabel = Instance.new("TextLabel")
-            valueLabel.Size = UDim2.new(0, 50, 0, 14)
-            valueLabel.Position = UDim2.new(1, -50, 0, 0)
-            valueLabel.BackgroundTransparency = 1
-            valueLabel.Text = tostring(data and data.Default or 0)
-            NexusUI:BindColor(valueLabel, "TextColor3", function() return COLOR_TEXT_DIM end)
-            valueLabel.FontFace = Font.new(FONT_BODY, Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-            valueLabel.TextSize = 12
-            valueLabel.TextXAlignment = Enum.TextXAlignment.Right
-            valueLabel.Parent = frame
-
-            local track = Instance.new("Frame")
-            track.Size = UDim2.new(1, 0, 0, 4)
-            track.Position = UDim2.new(0, 0, 0, 22)
-            NexusUI:BindColor(track, "BackgroundColor3", function() return COLOR_CONTROL end)
-            track.BorderSizePixel = 0
-            track.ZIndex = 5
-            track.Active = true
-            track.ClipsDescendants = false
-            track.Parent = frame
-
-            local trackCorner = Instance.new("UICorner")
-            trackCorner.CornerRadius = UDim.new(0, 0)
-            trackCorner.Parent = track
-
-            local fill = Instance.new("Frame")
-            fill.Size = UDim2.new(0, 0, 1, 0)
-            NexusUI:BindColor(fill, "BackgroundColor3", function() return ACCENT end)
-            fill.BorderSizePixel = 0
-            fill.ZIndex = 6
-            fill.ClipsDescendants = true
-            fill.Parent = track
-
-            local fillCorner = Instance.new("UICorner")
-            fillCorner.CornerRadius = UDim.new(0, 0)
-            fillCorner.Parent = fill
-
-            local knob = Instance.new("Frame")
-            knob.Name = "SliderKnob"
-            knob.Size = UDim2.fromOffset(8, 8)
-            knob.AnchorPoint = Vector2.new(0.5, 0.5)
-            knob.Position = UDim2.new(0, 0, 0.5, 0)
-            NexusUI:BindColor(knob, "BackgroundColor3", function() return ACCENT end)
-            knob.BorderSizePixel = 0
-            knob.ZIndex = 8
-            knob.Active = true
-            knob.Parent = track
-
-            local knobCorner = Instance.new("UICorner")
-            knobCorner.CornerRadius = UDim.new(0, 0)
-            knobCorner.Parent = knob
+            local parent = getControlParent()
+            local accent = accents[parent] or accentColor
+            local sub = lastKind[parent] == "toggle" or lastKind[parent] == "sub"
+            local inset = sub and 19 or 0
+            divider(parent, sub and "sub" or "slider")
+            local frame = new("Frame", {Size = UDim2.new(1, 0, 0, IS_MOBILE and 34 or 30), BackgroundTransparency = 1, LayoutOrder = #controls + 1, BorderSizePixel = 0}, parent)
+            if sub then
+                local elbow = icon("elbow", 8, 20, textColor, frame)
+                elbow.Position, elbow.ImageTransparency = UDim2.fromOffset(9, 5), 0.78
+            end
+            local label = caption(frame, {Size = UDim2.new(0.6, -inset, 1, 0), Position = UDim2.fromOffset(inset, 0), Text = data and data.Title or id, TextSize = TS - 2, TextTruncate = Enum.TextTruncate.AtEnd}, dimColor)
+            local valueBox = bind(new("Frame", {AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0), Size = UDim2.fromOffset(34, 17), BackgroundTransparency = 0.935, BorderSizePixel = 0}, frame), "BackgroundColor3", textColor)
+            corner(valueBox, 5)
+            stroke(valueBox, 0.9)
+            local valueLabel = caption(valueBox, {Size = UDim2.fromScale(1, 1), Text = tostring(data and data.Default or 0), FontFace = TEXT_FONT, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Center})
+            local track = bind(new("Frame", {AnchorPoint = Vector2.new(0, 0.5), BackgroundTransparency = 0.89, BorderSizePixel = 0, ZIndex = 5, Active = true}, frame), "BackgroundColor3", textColor)
+            corner(track, 2)
+            local fill = new("Frame", {Size = UDim2.new(0, 0, 1, 0), BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 6}, track)
+            corner(fill, 2)
+            bind(new("UIGradient", {Transparency = NumberSequence.new(0.6, 0)}, fill), "Color", function() return ColorSequence.new(accent()) end)
+            local knob = new("Frame", {Name = "SliderKnob", Size = UDim2.fromOffset(10, 10), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 0, 0.5, 0), BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 8, Active = true}, track)
+            corner(knob, 99)
+            bind(new("UIStroke", {Thickness = 3, Transparency = 0.66}, knob), "Color", accent)
+            icon("glow", 26, 26, accent, knob).ImageTransparency = 0.45
+            local function layout()
+                local scale = math.max(targetScale, 0.1)
+                local box = math.max(34, math.ceil(valueLabel.TextBounds.X / scale) + 12)
+                local x = inset + math.ceil(label.TextBounds.X / scale) + 12
+                valueBox.Size = UDim2.fromOffset(box, 17)
+                track.Position, track.Size = UDim2.new(0, x, 0.5, 0), UDim2.new(1, -(x + box + 11), 0, 4)
+            end
+            layout()
+            TrackGuiConnection(label:GetPropertyChangedSignal("TextBounds"):Connect(layout))
+            TrackGuiConnection(valueLabel:GetPropertyChangedSignal("TextBounds"):Connect(layout))
 
             local value = data and data.Default or 0
             local step = data and data.Step or 1
@@ -5592,89 +5200,26 @@ function NexusUI:CreateWindow(options)
         end
 
         function tabObject:AddDropdown(id, data)
-            local horizontalInset = math.max(0, tonumber(data and data.HorizontalInset) or 8)
-            local selectorHeight = math.max(20, tonumber(data and data.SelectorHeight) or 36)
+            local horizontalInset = math.max(0, tonumber(data and data.HorizontalInset) or 1)
+            local selectorHeight = math.max(20, tonumber(data and data.SelectorHeight) or 28)
             local listMaxHeight = math.max(90, tonumber(data and data.ListMaxHeight) or 210)
-            local optionHeight = math.max(24, tonumber(data and data.OptionHeight) or 36)
-            local selectorY = 26
-            local closedHeight = selectorY + selectorHeight + 10
-            local listY = closedHeight + 4
+            local optionHeight = math.max(24, tonumber(data and data.OptionHeight) or 26)
+            local selectorY = 24
+            local closedHeight = selectorY + selectorHeight + 8
+            local listY = closedHeight
 
-            local dropdownFrame = Instance.new("Frame")
-            dropdownFrame.Size = UDim2.new(1, 0, 0, closedHeight)
-            NexusUI:BindColor(dropdownFrame, "BackgroundColor3", function() return COLOR_GROUP end)
-            dropdownFrame.BackgroundTransparency = GUI_PANEL_TRANSPARENCY
-            dropdownFrame.BorderSizePixel = 0
-            dropdownFrame.ClipsDescendants = true
-            dropdownFrame.LayoutOrder = #controls + 1
-            dropdownFrame.Parent = getControlParent()
-
-            local dropdownCorner = Instance.new("UICorner")
-            dropdownCorner.CornerRadius = UDim.new(0, 0)
-            dropdownCorner.Parent = dropdownFrame
-
-            local dropdownStroke = Instance.new("UIStroke")
-            dropdownStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            NexusUI:BindColor(dropdownStroke, "Color", function() return COLOR_BORDER end)
-            dropdownStroke.Transparency = 0.42
-            dropdownStroke.Thickness = 1
-            dropdownStroke.Parent = dropdownFrame
-
-            local title = Instance.new("TextLabel")
-            title.Size = UDim2.new(1, -16, 0, 14)
-            title.Position = UDim2.fromOffset(12, 7)
-            title.BackgroundTransparency = 1
-            title.Text = data and data.Title or id
-            NexusUI:BindColor(title, "TextColor3", function() return COLOR_TEXT_DIM end)
-            title.FontFace = Font.new(FONT_BODY, Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-            title.TextSize = 12
-            title.TextXAlignment = Enum.TextXAlignment.Left
-            title.Parent = dropdownFrame
-
-            local selector, selectorLabel = CreateClickButton(
-                dropdownFrame,
-                "Select...",
-                UDim2.new(1, -(horizontalInset * 2), 0, selectorHeight),
-                UDim2.fromOffset(horizontalInset, selectorY),
-                COLOR_CONTROL,
-                COLOR_TEXT,
-                Enum.Font.GothamSemibold,
-                12
-            )
-            local selectorStroke = Instance.new("UIStroke")
-            selectorStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            selectorStroke.Transparency = 0.5
-            NexusUI:BindColor(selectorStroke, "Color", function() return COLOR_BORDER end)
-            selectorStroke.Parent = selector
-            selectorLabel.TextXAlignment = Enum.TextXAlignment.Left
-            selectorLabel.TextTruncate = Enum.TextTruncate.AtEnd
-
-            local selectorAccent = Instance.new("Frame")
-            selectorAccent.Size = UDim2.fromOffset(3, 18)
-            selectorAccent.Position = UDim2.new(0, 7, 0.5, -9)
-            selectorAccent.BorderSizePixel = 0
-            NexusUI:BindColor(selectorAccent, "BackgroundColor3", function() return ACCENT end)
-            selectorAccent.Parent = selector
-
-            local selectorAccentCorner = Instance.new("UICorner")
-            selectorAccentCorner.CornerRadius = UDim.new(0, 0)
-            selectorAccentCorner.Parent = selectorAccent
-
-            local selectorPadding = Instance.new("UIPadding")
-            selectorPadding.PaddingLeft = UDim.new(0, 18)
-            selectorPadding.PaddingRight = UDim.new(0, 38)
-            selectorPadding.Parent = selectorLabel
-
-            local arrow = Instance.new("TextLabel")
-            arrow.BackgroundTransparency = 1
-            arrow.Size = UDim2.fromOffset(28, selectorHeight)
-            arrow.Position = UDim2.new(1, -32, 0, 0)
-            arrow.Text = "›"
-            arrow.Font = Enum.Font.GothamBold
-            arrow.TextSize = 21
-            arrow.Rotation = 90
-            NexusUI:BindColor(arrow, "TextColor3", function() return ACCENT end)
-            arrow.Parent = selector
+            local parent = getControlParent()
+            divider(parent, "dropdown")
+            local dropdownFrame = new("Frame", {Size = UDim2.new(1, 0, 0, closedHeight), BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true, LayoutOrder = #controls + 1}, parent)
+            caption(dropdownFrame, {Size = UDim2.new(1, 0, 0, 14), Position = UDim2.fromOffset(0, 6), Text = data and data.Title or id, TextSize = 9}, dimColor)
+            local selector, selectorLabel = CreateClickButton(dropdownFrame, "Select...", UDim2.new(1, -(horizontalInset * 2), 0, selectorHeight), UDim2.fromOffset(horizontalInset, selectorY), COLOR_CONTROL, COLOR_TEXT, Enum.Font.GothamMedium, 10)
+            selector.BackgroundTransparency = 0.3
+            local selectorStroke = stroke(selector, 0.2, function() return COLOR_BORDER end)
+            local dropdownStroke = selectorStroke
+            selectorLabel.TextXAlignment, selectorLabel.TextTruncate = Enum.TextXAlignment.Left, Enum.TextTruncate.AtEnd
+            new("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 28)}, selectorLabel)
+            local arrow = icon("chevron", 10, 10, dimColor, selector)
+            arrow.Position, arrow.Rotation, arrow.ZIndex = UDim2.new(1, -14, 0.5, 0), 90, 11
             local optionViews, openTween, arrowTween = {}, nil, nil
             local function refreshSelection(value)
                 for v, item in pairs(optionViews) do
@@ -5685,40 +5230,12 @@ function NexusUI:CreateWindow(options)
                 end
             end
 
-            local optionsList = Instance.new("ScrollingFrame")
-            optionsList.Size = UDim2.new(1, -(horizontalInset * 2), 0, 0)
-            optionsList.Position = UDim2.fromOffset(horizontalInset, listY)
-            NexusUI:BindColor(optionsList, "BackgroundColor3", function() return COLOR_TOPBAR end)
-            optionsList.BackgroundTransparency = 0.08
-            optionsList.BorderSizePixel = 0
-            optionsList.ScrollBarThickness = 3
-            NexusUI:BindColor(optionsList, "ScrollBarImageColor3", function() return COLOR_BORDER end)
-            optionsList.AutomaticCanvasSize = Enum.AutomaticSize.Y
-            optionsList.CanvasSize = UDim2.new()
-            optionsList.Visible = false
-            optionsList.Parent = dropdownFrame
-
-            local optionsCorner = Instance.new("UICorner")
-            optionsCorner.CornerRadius = UDim.new(0, 0)
-            optionsCorner.Parent = optionsList
-
-            local optionsStroke = Instance.new("UIStroke")
-            optionsStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            NexusUI:BindColor(optionsStroke, "Color", function() return COLOR_BORDER end)
-            optionsStroke.Transparency = 0.52
-            optionsStroke.Parent = optionsList
-
-            local optionsPadding = Instance.new("UIPadding")
-            optionsPadding.PaddingTop = UDim.new(0, 2)
-            optionsPadding.PaddingBottom = UDim.new(0, 2)
-            optionsPadding.PaddingLeft = UDim.new(0, 2)
-            optionsPadding.PaddingRight = UDim.new(0, 2)
-            optionsPadding.Parent = optionsList
-
-            local optionsLayout = Instance.new("UIListLayout")
-            optionsLayout.Padding = UDim.new(0, 4)
-            optionsLayout.SortOrder = Enum.SortOrder.LayoutOrder
-            optionsLayout.Parent = optionsList
+            local optionsList = bind(new("ScrollingFrame", {Size = UDim2.new(1, -(horizontalInset * 2), 0, 0), Position = UDim2.fromOffset(horizontalInset, listY), BackgroundTransparency = 0.3, BorderSizePixel = 0, ScrollBarThickness = 3, AutomaticCanvasSize = Enum.AutomaticSize.Y, CanvasSize = UDim2.new(), Visible = false}, dropdownFrame), "BackgroundColor3", function() return COLOR_CONTROL end)
+            bind(optionsList, "ScrollBarImageColor3", function() return COLOR_BORDER end)
+            corner(optionsList, 6)
+            stroke(optionsList, 0.2, function() return COLOR_BORDER end)
+            new("UIPadding", {PaddingTop = UDim.new(0, 2), PaddingBottom = UDim.new(0, 2), PaddingLeft = UDim.new(0, 2), PaddingRight = UDim.new(0, 2)}, optionsList)
+            new("UIListLayout", {Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder}, optionsList)
 
             local dropdown = {
                 Value = nil,
@@ -5793,40 +5310,12 @@ function NexusUI:CreateWindow(options)
                 end
 
                 for index, value in ipairs(dropdown.Values) do
-                    local option, optionLabel = CreateClickButton(
-                        optionsList,
-                        tostring(value),
-                        UDim2.new(1, -2, 0, optionHeight),
-                        UDim2.new(),
-                        COLOR_CONTROL,
-                        COLOR_TEXT,
-                        Enum.Font.GothamSemibold,
-                        12,
-                        true
-                    )
+                    local option, optionLabel = CreateClickButton(optionsList, tostring(value), UDim2.new(1, -2, 0, optionHeight), UDim2.new(), COLOR_CONTROL, COLOR_TEXT, Enum.Font.GothamMedium, 10, true)
                     option.LayoutOrder = index
-                    local selected = Instance.new("TextLabel")
-                    selected.BackgroundTransparency = 1
-                    selected.Size = UDim2.fromOffset(24, optionHeight)
-                    selected.Position = UDim2.new(1, -28, 0, 0)
-                    selected.Text = "✓"
-                    selected.Font = Enum.Font.GothamBold
-                    selected.TextSize = 13
-                    selected.ZIndex = optionLabel.ZIndex
-                    selected.Visible = false
-                    NexusUI:BindColor(selected, "TextColor3", function() return ACCENT end)
-                    selected.Parent = option
-                    local optionAccent = Instance.new("Frame")
-                    optionAccent.Size = UDim2.fromOffset(3, math.max(14, optionHeight - 16))
-                    optionAccent.Position = UDim2.new(0, 5, 0.5, -math.max(14, optionHeight - 16) / 2)
-                    optionAccent.BorderSizePixel = 0
-                    optionAccent.Visible = false
-                    optionAccent.ZIndex = optionLabel.ZIndex
-                    NexusUI:BindColor(optionAccent, "BackgroundColor3", function() return ACCENT end)
-                    optionAccent.Parent = option
-                    local optionAccentCorner = Instance.new("UICorner")
-                    optionAccentCorner.CornerRadius = UDim.new(0, 0)
-                    optionAccentCorner.Parent = optionAccent
+                    local selected = icon("check", 11, 11, accentColor, option)
+                    selected.Position, selected.ZIndex, selected.Visible = UDim2.new(1, -14, 0.5, 0), optionLabel.ZIndex, false
+                    local optionAccent = bind(new("Frame", {Size = UDim2.fromOffset(2, 12), Position = UDim2.new(0, 6, 0.5, -6), BorderSizePixel = 0, Visible = false, ZIndex = optionLabel.ZIndex}, option), "BackgroundColor3", accentColor)
+                    corner(optionAccent, 1)
                     local hovered, hoverTween = false, nil
                     local function color()
                         return COLOR_CONTROL:Lerp(ACCENT, option:GetAttribute("Selected") and 0.2 or hovered and 0.1 or 0)
@@ -5905,96 +5394,30 @@ function NexusUI:CreateWindow(options)
 
         function tabObject:AddButton(data)
             local hasDesc = data and data.Description and data.Description ~= ""
-
-            local buttonFrame = Instance.new("Frame")
-            buttonFrame.Size = hasDesc and UDim2.new(1, 0, 0, 52) or UDim2.new(1, 0, 0, 38)
-            NexusUI:BindColor(buttonFrame, "BackgroundColor3", function() return COLOR_CONTROL end)
-            buttonFrame.BackgroundTransparency = GUI_BUTTON_TRANSPARENCY
-            buttonFrame.LayoutOrder = #controls + 1
-            buttonFrame.BorderSizePixel = 0
-            buttonFrame.Active = true
-            buttonFrame.Parent = getControlParent()
-
-            local bCorner = Instance.new("UICorner")
-            bCorner.CornerRadius = UDim.new(0, 0)
-            bCorner.Parent = buttonFrame
-
-            local bStroke = Instance.new("UIStroke")
-            bStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-            NexusUI:BindColor(bStroke, "Color", function() return COLOR_BORDER end)
-            bStroke.Transparency = 0.4
-            bStroke.Thickness = 1
-            bStroke.Parent = buttonFrame
-
-            local titleLabel = Instance.new("TextLabel")
-            titleLabel.BackgroundTransparency = 1
-            titleLabel.Text = data and data.Title or "Button"
-            NexusUI:BindColor(titleLabel, "TextColor3", function() return COLOR_TEXT end)
-            titleLabel.FontFace = Font.new(FONT_BODY, Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-            titleLabel.TextSize = 15
-            titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-            titleLabel.TextYAlignment = Enum.TextYAlignment.Center
+            local parent = getControlParent()
+            divider(parent, "button")
+            local buttonFrame = new("Frame", {Size = UDim2.new(1, 0, 0, hasDesc and 52 or 38), BackgroundTransparency = 1, LayoutOrder = #controls + 1, BorderSizePixel = 0, Active = true}, parent)
+            local panel = bind(new("Frame", {Name = "Panel", Size = UDim2.new(1, -2, 1, -8), Position = UDim2.fromOffset(1, 4), BackgroundTransparency = 0.945, BorderSizePixel = 0}, buttonFrame), "BackgroundColor3", textColor)
+            corner(panel, 7)
+            local bStroke = stroke(panel, 0.91)
+            caption(buttonFrame, {Size = hasDesc and UDim2.new(1, -40, 0, 14) or UDim2.new(1, -40, 1, 0), Position = UDim2.fromOffset(12, hasDesc and 11 or 0), Text = data and data.Title or "Button", TextSize = 11, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 2})
             if hasDesc then
-                titleLabel.Size = UDim2.new(1, -36, 0, 15)
-                titleLabel.Position = UDim2.new(0, 10, 0, 7)
-            else
-                titleLabel.Size = UDim2.new(1, -36, 1, 0)
-                titleLabel.Position = UDim2.new(0, 10, 0, 0)
+                caption(buttonFrame, {Size = UDim2.new(1, -40, 0, 12), Position = UDim2.fromOffset(12, 27), Text = data.Description, TextSize = 9, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 2}, dimColor)
             end
-            titleLabel.Parent = buttonFrame
-
-            if hasDesc then
-                local descLabel = Instance.new("TextLabel")
-                descLabel.Size = UDim2.new(1, -36, 0, 12)
-                descLabel.Position = UDim2.new(0, 10, 0, 25)
-                descLabel.BackgroundTransparency = 1
-                descLabel.Text = data.Description
-                NexusUI:BindColor(descLabel, "TextColor3", function() return COLOR_TEXT_DIM end)
-                descLabel.FontFace = Font.new(FONT_BODY, Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-                descLabel.TextSize = 12
-                descLabel.TextXAlignment = Enum.TextXAlignment.Left
-                descLabel.TextWrapped = true
-                descLabel.Parent = buttonFrame
+            local chevron = icon("chevron", 10, 10, dimColor, buttonFrame)
+            chevron.Position, chevron.ZIndex = UDim2.new(1, -15, 0.5, 0), 2
+            local function paint(fillTransparency, strokeTransparency, duration)
+                if not panel.Parent then return end
+                TweenService:Create(panel, TweenInfo.new(duration, Enum.EasingStyle.Quad), {BackgroundTransparency = fillTransparency}):Play()
+                TweenService:Create(bStroke, TweenInfo.new(duration, Enum.EasingStyle.Quad), {Transparency = strokeTransparency}):Play()
             end
-
-            local arrowLabel = Instance.new("TextLabel")
-            arrowLabel.Size = UDim2.fromOffset(14, 14)
-            arrowLabel.AnchorPoint = Vector2.new(1, 0.5)
-            arrowLabel.Position = UDim2.new(1, -8, 0.5, 0)
-            arrowLabel.BackgroundTransparency = 1
-            arrowLabel.Text = ">"
-            NexusUI:BindColor(arrowLabel, "TextColor3", function() return COLOR_TEXT_DIM end)
-            arrowLabel.FontFace = Font.new(FONT_BODY, Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-            arrowLabel.TextSize = 14
-            arrowLabel.ZIndex = buttonFrame.ZIndex + 1
-            arrowLabel.Parent = buttonFrame
-
-            local defaultBg = COLOR_CONTROL
-            local hoverBg = COLOR_CONTROL:Lerp(ACCENT, 0.12)
-            table.insert(NexusUI.ThemeRefresh, function() defaultBg = COLOR_CONTROL; hoverBg = COLOR_CONTROL:Lerp(ACCENT, 0.12) end)
-
-            TrackGuiConnection(buttonFrame.MouseEnter:Connect(function()
-                TweenService:Create(buttonFrame, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {BackgroundColor3 = hoverBg}):Play()
-                TweenService:Create(bStroke, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {Transparency = 0.3}):Play()
-            end))
-
-            TrackGuiConnection(buttonFrame.MouseLeave:Connect(function()
-                TweenService:Create(buttonFrame, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {BackgroundColor3 = defaultBg}):Play()
-                TweenService:Create(bStroke, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {Transparency = 0.55}):Play()
-            end))
-
+            TrackGuiConnection(buttonFrame.MouseEnter:Connect(function() paint(0.9, 0.82, 0.1) end))
+            TrackGuiConnection(buttonFrame.MouseLeave:Connect(function() paint(0.945, 0.91, 0.1) end))
             ConnectClick(buttonFrame, function()
-                TweenService:Create(buttonFrame, TweenInfo.new(0.07, Enum.EasingStyle.Quad), {BackgroundColor3 = COLOR_CONTROL}):Play()
-                task.delay(0.12, function()
-                    if buttonFrame and buttonFrame.Parent then
-                        TweenService:Create(buttonFrame, TweenInfo.new(0.1, Enum.EasingStyle.Quad), {BackgroundColor3 = defaultBg}):Play()
-                    end
-                end)
-                if data and data.Callback then
-                    pcall(data.Callback)
-                end
+                paint(0.84, 0.75, 0.07)
+                task.delay(0.12, function() paint(0.945, 0.91, 0.1) end)
+                if data and data.Callback then pcall(data.Callback) end
             end)
-
             table.insert(controls, buttonFrame)
             return buttonFrame
         end
@@ -6147,47 +5570,13 @@ function NexusUI:Notify(options)
     notifyGui.Parent = GuiParent
     attachTextStyler(notifyGui)
 
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.fromOffset(300, 54)
-    frame.Position = UDim2.new(1, -310, 0, 20)
-    NexusUI:BindColor(frame, "BackgroundColor3", function() return COLOR_WINDOW end)
-    frame.BackgroundTransparency = 0.02
-    frame.BorderSizePixel = 0
-    frame.Parent = notifyGui
-
-    local frameCorner = Instance.new("UICorner")
-    frameCorner.CornerRadius = UDim.new(0, 0)
-    frameCorner.Parent = frame
-
-    local frameStroke = Instance.new("UIStroke")
-    frameStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    NexusUI:BindColor(frameStroke, "Color", function() return COLOR_BORDER end)
-    frameStroke.Transparency = 0.4
-    frameStroke.Thickness = 1
-    frameStroke.Parent = frame
-
-    local accentBar = Instance.new("Frame")
-    accentBar.Size = UDim2.new(0, 3, 1, -10)
-    accentBar.Position = UDim2.new(0, 5, 0, 5)
-    NexusUI:BindColor(accentBar, "BackgroundColor3", function() return ACCENT end)
-    accentBar.BorderSizePixel = 0
-    accentBar.Parent = frame
-
-    local accentBarCorner = Instance.new("UICorner")
-    accentBarCorner.CornerRadius = UDim.new(0, 0)
-    accentBarCorner.Parent = accentBar
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, -22, 1, 0)
-    label.Position = UDim2.new(0, 16, 0, 0)
-    label.BackgroundTransparency = 1
-    label.Text = (options and options.Title or "Notify") .. "\n" .. (options and options.Content or "")
-    NexusUI:BindColor(label, "TextColor3", function() return COLOR_TEXT end)
-    label.FontFace = Font.new(FONT_BODY, Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-    label.TextSize = 13
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.TextWrapped = true
-    label.Parent = frame
+    local frame = bind(new("Frame", {Size = UDim2.fromOffset(300, 54), Position = UDim2.new(1, -310, 0, 20), BackgroundTransparency = 0.04, BorderSizePixel = 0}, notifyGui), "BackgroundColor3", function() return COLOR_WINDOW end)
+    corner(frame, 9)
+    stroke(frame, 0.2, function() return COLOR_BORDER end)
+    local accentBar = bind(new("Frame", {Size = UDim2.new(0, 3, 1, -22), Position = UDim2.fromOffset(10, 11), BorderSizePixel = 0}, frame), "BackgroundColor3", accentColor)
+    corner(accentBar, 2)
+    icon("glow", 17, 44, accentColor, accentBar).ImageTransparency = 0.45
+    caption(frame, {Size = UDim2.new(1, -34, 1, 0), Position = UDim2.fromOffset(24, 0), Text = (options and options.Title or "Notify") .. "\n" .. (options and options.Content or ""), TextSize = 10, TextWrapped = true})
 
     task.delay((options and options.Duration or 3) + 0.2, function()
         if notifyGui then
@@ -6209,6 +5598,7 @@ Window = NexusUI:CreateWindow({
 
 Tabs = {
     Main = Window:AddTab({ Title = "Main"}),
+    Styles = Window:AddTab({ Title = "Styles"}),
     Movement = Window:AddTab({ Title = "Movement"}),
     ESP = Window:AddTab({ Title = "ESP"}),
     Zone = Window:AddTab({ Title = "Zone"}),
@@ -6249,7 +5639,7 @@ SettingsSection = Tabs.Settings:AddSection("Keybinds")
 keybindRow = Instance.new("Frame")
 keybindRow.Size = UDim2.new(1, 0, 0, 48)
 NexusUI:BindColor(keybindRow, "BackgroundColor3", function() return COLOR_CONTROL end)
-keybindRow.BackgroundTransparency = GUI_BUTTON_TRANSPARENCY
+keybindRow.BackgroundTransparency = 1
 keybindRow.BorderSizePixel = 0
 keybindRow.LayoutOrder = 2
 keybindRow.Parent = SettingsSection.Content
@@ -6260,29 +5650,29 @@ keybindRowCorner.Parent = keybindRow
 
 keybindTitle = Instance.new("TextLabel")
 keybindTitle.Size = UDim2.new(1, -130, 0, 16)
-keybindTitle.Position = UDim2.new(0, 8, 0, 8)
+keybindTitle.Position = UDim2.new(0, 0, 0, 9)
 keybindTitle.BackgroundTransparency = 1
 keybindTitle.Text = "Toggle GUI"
 NexusUI:BindColor(keybindTitle, "TextColor3", function() return COLOR_TEXT end)
 keybindTitle.FontFace = Font.new(FONT_BODY, Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-keybindTitle.TextSize = 15
+keybindTitle.TextSize = 11
 keybindTitle.TextXAlignment = Enum.TextXAlignment.Left
 keybindTitle.Parent = keybindRow
 
 keybindHint = Instance.new("TextLabel")
 keybindHint.Size = UDim2.new(1, -130, 0, 13)
-keybindHint.Position = UDim2.new(0, 8, 0, 27)
+keybindHint.Position = UDim2.new(0, 0, 0, 26)
 keybindHint.BackgroundTransparency = 1
 keybindHint.Text = "Click box to rebind"
 NexusUI:BindColor(keybindHint, "TextColor3", function() return COLOR_TEXT_DIM end)
 keybindHint.FontFace = Font.new(FONT_BODY, Enum.FontWeight.Regular, Enum.FontStyle.Normal)
-keybindHint.TextSize = 11
+keybindHint.TextSize = 9
 keybindHint.TextXAlignment = Enum.TextXAlignment.Left
 keybindHint.Parent = keybindRow
 
 keybindBadge = Instance.new("Frame")
 keybindBadge.Size = UDim2.fromOffset(78, 28)
-keybindBadge.Position = UDim2.new(1, -86, 0.5, -14)
+keybindBadge.Position = UDim2.new(1, -79, 0.5, -14)
 NexusUI:BindColor(keybindBadge, "BackgroundColor3", function() return COLOR_CONTROL end)
 keybindBadge.BackgroundTransparency = GUI_BUTTON_TRANSPARENCY
 keybindBadge.BorderSizePixel = 0
@@ -6291,7 +5681,7 @@ keybindBadge.ZIndex = 5
 keybindBadge.Parent = keybindRow
 
 keybindBadgeCorner = Instance.new("UICorner")
-keybindBadgeCorner.CornerRadius = UDim.new(0, 0)
+keybindBadgeCorner.CornerRadius = UDim.new(0, 6)
 keybindBadgeCorner.Parent = keybindBadge
 
 keybindBadgeStroke = Instance.new("UIStroke")
@@ -6308,7 +5698,7 @@ keybindBadgeLabel.BackgroundTransparency = 1
 keybindBadgeLabel.Text = "LeftAlt"
 NexusUI:BindColor(keybindBadgeLabel, "TextColor3", function() return COLOR_TEXT end)
 keybindBadgeLabel.FontFace = Font.new(FONT_BODY, Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-keybindBadgeLabel.TextSize = 13
+keybindBadgeLabel.TextSize = 10
 keybindBadgeLabel.TextTruncate = Enum.TextTruncate.AtEnd
 keybindBadgeLabel.ZIndex = 6
 keybindBadgeLabel.Parent = keybindBadge
@@ -6543,40 +5933,12 @@ do
     local ConfigSection = Tabs.Settings:AddSection("Configs")
 
     -- Config name input
-    local nameRow = Instance.new("Frame")
-    nameRow.Size = UDim2.new(1, 0, 0, 38)
-    NexusUI:BindColor(nameRow, "BackgroundColor3", function() return COLOR_CONTROL end)
-    nameRow.BackgroundTransparency = GUI_BUTTON_TRANSPARENCY
-    nameRow.BorderSizePixel = 0
-    nameRow.LayoutOrder = 0
-    nameRow.Parent = ConfigSection.Content
-
-    local nameRowCorner = Instance.new("UICorner")
-    nameRowCorner.CornerRadius = UDim.new(0, 0)
-    nameRowCorner.Parent = nameRow
-
-    local nameRowStroke = Instance.new("UIStroke")
-    nameRowStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    NexusUI:BindColor(nameRowStroke, "Color", function() return COLOR_BORDER end)
-    nameRowStroke.Transparency = 0.4
-    nameRowStroke.Thickness = 1
-    nameRowStroke.Parent = nameRow
-
-    local nameBox = Instance.new("TextBox")
-    nameBox.Size = UDim2.new(1, -20, 1, 0)
-    nameBox.Position = UDim2.new(0, 10, 0, 0)
-    nameBox.BackgroundTransparency = 1
-    nameBox.ClearTextOnFocus = false
-    nameBox.Text = ""
-    nameBox.PlaceholderText = "Config name..."
-    NexusUI:BindColor(nameBox, "TextColor3", function() return COLOR_TEXT end)
-    NexusUI:BindColor(nameBox, "PlaceholderColor3", function() return COLOR_TEXT_DIM end)
-    nameBox.FontFace = Font.new(FONT_BODY, Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-    nameBox.TextSize = 15
-    nameBox.TextXAlignment = Enum.TextXAlignment.Left
-    nameBox.TextTruncate = Enum.TextTruncate.AtEnd
-    nameBox.ZIndex = 5
-    nameBox.Parent = nameRow
+    local nameRow = new("Frame", {Size = UDim2.new(1, 0, 0, 46), BackgroundTransparency = 1, BorderSizePixel = 0, LayoutOrder = 0}, ConfigSection.Content)
+    local nameField = bind(new("Frame", {Size = UDim2.new(1, -2, 0, 32), Position = UDim2.fromOffset(1, 9), BackgroundTransparency = 0.3, BorderSizePixel = 0}, nameRow), "BackgroundColor3", function() return COLOR_CONTROL end)
+    corner(nameField, 7)
+    local nameRowStroke = stroke(nameField, 0.4, function() return COLOR_BORDER end)
+    local nameBox = bind(new("TextBox", {Size = UDim2.new(1, -20, 1, 0), Position = UDim2.fromOffset(10, 0), BackgroundTransparency = 1, ClearTextOnFocus = false, Text = "", PlaceholderText = "Config name...", TextSize = 11, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 5}, nameField), "TextColor3", textColor)
+    bind(nameBox, "PlaceholderColor3", dimColor)
 
     TrackGuiConnection(nameBox.Focused:Connect(function()
         nameRowStroke.Transparency = 0.1
