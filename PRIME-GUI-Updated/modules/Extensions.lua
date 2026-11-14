@@ -2062,8 +2062,95 @@ do
         local gui = PlayerGui:FindFirstChild("Style")
         return gui, gui and gui:FindFirstChild("BG")
     end
+    local spinInput, heldSpin
+    local spinEpoch = 0
+    local function releaseSpin(cancel)
+        local held = heldSpin
+        heldSpin = nil
+        if held and spinInput then
+            local x, y = cancel and 0 or held.X, cancel and 0 or held.Y
+            return pcall(spinInput.Button, x, y, false)
+        end
+        return true
+    end
+    local function getSpinInput()
+        local ok, input = pcall(function() return userInputService:CreateVirtualInput() end)
+        if ok and input then
+            return {Move = function(x, y) input:SendMousePosition(Vector2.new(x, y)) end,
+                Button = function(x, y, down) input:SendMouseButton(Vector2.new(x, y), Enum.UserInputType.MouseButton1, down, 0) end}
+        end
+        local found, manager = pcall(game.GetService, game, "VirtualInputManager")
+        if not found or not manager then return end
+        return {Move = function(x, y) manager:SendMouseMoveEvent(x, y, game) end,
+            Button = function(x, y, down) manager:SendMouseButtonEvent(x, y, 0, down, game, 0) end}
+    end
+    local function spinButtonHit(button, x, y)
+        if Window and type(Window.IsPointOverWindow) == "function" and Window:IsPointOverWindow(x, y) then return false end
+        local ok, objects = pcall(PlayerGui.GetGuiObjectsAtPosition, PlayerGui, x, y)
+        if not ok or type(objects) ~= "table" then return false end
+        for _, object in ipairs(objects) do
+            if object == button or object:IsDescendantOf(button) then return true end
+            if not button:IsDescendantOf(object) and (object:IsA("GuiButton") or object.Active) then return false end
+        end
+        return false
+    end
+    local function spinButtonPoint(button)
+        if not button or not button:IsA("GuiButton") or not visible(button) or button.Interactable == false then return end
+        local p, size = button.AbsolutePosition, button.AbsoluteSize
+        local camera = Workspace.CurrentCamera
+        if not camera or size.X < 4 or size.Y < 4 then return end
+        local center = p + size / 2
+        local inset = GuiService:GetGuiInset()
+        local gui = button:FindFirstAncestorOfClass("ScreenGui")
+        local offsets = gui and gui.IgnoreGuiInset and {Vector2.zero} or {inset, Vector2.zero}
+        for _, offset in ipairs(offsets) do
+            local x, y = math.floor(center.X + offset.X), math.floor(center.Y + offset.Y)
+            if x > 0 and y > 0 and x < camera.ViewportSize.X and y < camera.ViewportSize.Y and spinButtonHit(button, x, y) then
+                return x, y
+            end
+        end
+    end
+    local function pressSpinButton(button, onPress)
+        if heldSpin or not spinInput or userInputService:GetFocusedTextBox()
+            or userInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then return false, "wait" end
+        local x, y = spinButtonPoint(button)
+        if not x then return false, "wait" end
+        local now = os.clock()
+        local candidate = spin.Candidate
+        if not candidate or candidate.Button ~= button or math.abs(candidate.X - x) + math.abs(candidate.Y - y) > 3 then
+            spin.Candidate = {Button = button, X = x, Y = y, Since = now}
+            return false, "wait"
+        end
+        if now - candidate.Since < 0.35 then return false, "wait" end
+        spin.Candidate = nil
+        local held = {Button = button, X = x, Y = y, Epoch = spinEpoch}
+        heldSpin = held
+        onPress()
+        local moved = pcall(spinInput.Move, x, y)
+        local pressed = moved and pcall(spinInput.Button, x, y, true)
+        if not pressed then releaseSpin(true); return false, "Virtual mouse input is unavailable in this executor" end
+        task.delay(0.1, function()
+            if heldSpin ~= held then return end
+            local cancel = not alive or ScriptUnloaded or not config.AutoStyles or held.Epoch ~= spinEpoch
+                or not button.Parent or not visible(button)
+            if not cancel then
+                local currentX, currentY = spinButtonPoint(button)
+                cancel = not currentX or math.abs(currentX - x) + math.abs(currentY - y) > 3
+            end
+            local released = releaseSpin(cancel)
+            if not released and alive and config.AutoStyles then setAutoStyles(false, "Cannot release virtual mouse input") end
+        end)
+        return true
+    end
+    local function spinCount(button)
+        local left = button and button:FindFirstChild("Left")
+        if not left or not left:IsA("TextLabel") then return end
+        local digits = left.Text:gsub("<.->", ""):match("(%d[%d,%s]*)")
+        return digits and tonumber((digits:gsub("%D", "")))
+    end
     local function stopSpin(reason)
-        if spin.Connection then spin.Connection:Disconnect() end
+        spinEpoch += 1
+        releaseSpin(true)
         spin = {}
         if reason then NexusUI:Notify({Title = "Auto Styles", Content = reason, Duration = 5}) end
     end
@@ -2076,76 +2163,53 @@ do
         end
         stopSpin()
         spin.Started = os.clock()
-        loadContext()
+        spin.ReadyAt = spin.Started + 0.75
+        spinInput = getSpinInput()
+        if not spinInput then setAutoStyles(false, "Virtual mouse input is unavailable in this executor") end
     end
     local function updateSpin(now)
         if not config.AutoStyles then return end
         if config.StopStyle == "Select a style" then setAutoStyles(false, "Choose a style in Stop On Style first"); return end
         local style = LocalPlayer:FindFirstChild("Style")
         if style and style.Value == config.StopStyle then setAutoStyles(false, "Found " .. config.StopStyle); return end
-        if not context then
-            if now - (spin.Started or now) > 15 then setAutoStyles(false, "Game data did not load") end
-            return
-        end
-        local player = context.Network.Player
-        if type(player) ~= "table" then return end
-        local remaining = config.SpinType == "Lucky" and player.LuckySpins or player.Spins
-        if not spin.Pending and (type(remaining) ~= "number" or remaining <= 0) then setAutoStyles(false, "No spins remaining"); return end
         if not LocalPlayer.Team or LocalPlayer.Team.Name ~= "Visitor" then setAutoStyles(false, "Return to the lobby to spin styles"); return end
-        local locked = player.LockedSlots and player.LockedSlots.Style
-        if locked and locked[player.StyleSlotEquipped] then setAutoStyles(false, "The equipped style slot is locked"); return end
-        if player.LimitedStyleEquipped ~= nil then setAutoStyles(false, "Unequip the limited style before spinning"); return end
-        if spin.Slot and spin.Slot ~= player.StyleSlotEquipped then setAutoStyles(false, "Style slot changed"); return end
-        spin.Slot = player.StyleSlotEquipped
-        if not spin.Connection then
-            local ok, service = pcall(context.Knit.GetService, "StyleService")
-            if not ok or not service or not service.Spin then setAutoStyles(false, "Style results are unavailable"); return end
-            local connected, connection = pcall(function()
-                return service.Spin:Connect(function()
-                    if config.AutoStyles and spin.Pending then spin.Ack = true end
-                end)
-            end)
-            if not connected then setAutoStyles(false, "Cannot observe spin completion"); return end
-            spin.Connection = connection
-            local okStyle, controller = pcall(function() return require(ReplicatedStorage.Controllers.UIController.Style) end)
-            if okStyle then spin.Controller = controller end
-        end
         local _, bg = styleScreen()
         if not bg then return end
         local button = bg:FindFirstChild(config.SpinType == "Lucky" and "LuckySpin" or "Spin")
         local label = button and button:FindFirstChild("TextLabel")
         local confirm = bg:FindFirstChild("Confirm")
+        local remaining = spinCount(button)
+        if not spin.Pending and remaining and remaining <= 0 then setAutoStyles(false, "No spins remaining"); return end
+        if heldSpin then return end
         if spin.Pending then
-            if now - spin.At > 15 then setAutoStyles(false, "No completed spin result; stopped to avoid repeated requests"); return end
-            if spin.OurConfirm and not spin.Confirmed and confirm and confirm.Visible then
-                spin.Confirmed = true
-                local count = config.SpinType == "Lucky" and player.LuckySpins or player.Spins
-                if type(count) ~= "number" or count <= 0 then setAutoStyles(false, "No spins remaining"); return end
-                if not click(confirm:FindFirstChild("Yes")) then setAutoStyles(false, "Cannot activate the confirmation button") end
+            if now - spin.At > 25 then setAutoStyles(false, "No completed spin; stopped without retrying"); return end
+            if label and label.Text == "SKIP" then spin.SawBusy = true end
+            if spin.AllowConfirm and not spin.Confirmed and not spin.SawBusy and confirm and confirm.Visible then
+                if now - spin.At > 5 then setAutoStyles(false, "The confirmation button is covered or unavailable"); return end
+                if not remaining or remaining <= 0 then setAutoStyles(false, "No spins remaining"); return end
+                local pressed, failure = pressSpinButton(confirm:FindFirstChild("Yes"), function() spin.Confirmed = true end)
+                if not pressed and failure ~= "wait" then setAutoStyles(false, failure) end
                 return
             end
-            if spin.Ack and label and label.Text == "SPIN" and now - spin.At >= 0.5 then
-                spin.Pending, spin.Ack, spin.OurConfirm, spin.Confirmed = nil, nil, nil, nil
-                spin.ReadyAt = now + 0.6
+            if spin.SawBusy and label and label.Text == "SPIN" and now - spin.At >= 11 then
+                spin.Pending, spin.SawBusy, spin.AllowConfirm, spin.Confirmed = nil, nil, nil, nil
+                spin.ReadyAt = now + 0.75
             end
             return
         end
         if now < (spin.ReadyAt or 0) or not visible(button) or not label or label.Text ~= "SPIN"
             or confirm and confirm.Visible or userInputService:GetFocusedTextBox() then return end
-        local controller = spin.Controller
-        if controller and controller.Party and controller.Party.InQueue then setAutoStyles(false, "Leave the matchmaking queue before spinning"); return end
-        if controller and controller.Bursting then setAutoStyles(false, "Wait for Spin Burst to end"); return end
-        local count = config.SpinType == "Lucky" and player.LuckySpins or player.Spins
-        if type(count) ~= "number" or count <= 0 then setAutoStyles(false, "No spins remaining"); return end
-        spin.Pending, spin.At, spin.Ack = true, now, false
-        if not click(button) then setAutoStyles(false, "Cannot activate the spin button"); return end
-        spin.OurConfirm = confirm and confirm.Visible == true
+        if not remaining then setAutoStyles(false, "Cannot read the available spins from the Style menu"); return end
+        local pressed, failure = pressSpinButton(button, function()
+            spin.Pending, spin.At, spin.AllowConfirm, spin.SawBusy = true, now, true, false
+        end)
+        if not pressed and failure ~= "wait" then setAutoStyles(false, failure) end
     end
 
     local heartbeat, render
     updateRun = function()
         local active = config.SmartSteal or config.Genius or config.SoulCatch or config.AutoStyles or wantsHooks()
-        if active then loadContext() end
+        if config.SmartSteal or wantsHooks() then loadContext() end
         if active and not heartbeat then
             heartbeat = RunService.Heartbeat:Connect(function()
                 if not alive or ScriptUnloaded then return end
@@ -2231,7 +2295,7 @@ do
         Tabs.Premium:AddSection("Auto Styles")
         dropdown(Tabs.Premium, "AutoStylesStopOn", "StopStyle", "Stop On Style", styles)
         dropdown(Tabs.Premium, "AutoStylesSpinType", "SpinType", "Spin Type", {"Normal", "Lucky"})
-        toggle(Tabs.Premium, "AutoStyles", "AutoStyles", "Auto Styles", "Uses available spins in the open Style menu and stops on the selected style")
+        toggle(Tabs.Premium, "AutoStyles", "AutoStyles", "Auto Styles", "Clicks the visible game buttons; keep the Style menu open and the buttons uncovered")
     end
     refreshTargets()
     connect(Players.PlayerAdded, refreshTargets)
