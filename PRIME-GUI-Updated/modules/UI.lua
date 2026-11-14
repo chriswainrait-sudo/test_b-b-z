@@ -4194,11 +4194,6 @@ function NexusUI:CreateWindow(options)
     local mobileTabHintHeight = 0
 
     local window = {}
-    function window:IsPointOverWindow(x, y)
-        if not screenGui.Enabled or not mainFrame.Visible then return false end
-        local p, s = mainFrame.AbsolutePosition, mainFrame.AbsoluteSize
-        return x >= p.X and x <= p.X + s.X and y >= p.Y and y <= p.Y + s.Y
-    end
     --[=[
     local snowfall = createSnowfall(mainFrame, innerClip, screenGui)
     function window:SetAutumnLeavesEnabled(value)
@@ -4775,19 +4770,37 @@ function NexusUI:CreateWindow(options)
     local tabs = {}
     local currentTab = nil
 
+    local tabTextService = game:GetService("TextService")
     local function fitTabs()
+        if #tabs == 0 then return end
+        local available = tabStrip.AbsoluteSize.X / math.max(fit.Scale, 0.01)
+        if available <= 0 then return end
         local total = 0
+        for _, tab in ipairs(tabs) do total += tab.preferredWidth or 24 end
+        local space = math.max(0, available - math.max(0, #tabs - 1) * 2)
+        local ratio = math.min(1, space / total)
         for _, tab in ipairs(tabs) do
-            tab.weight = math.max(3, utf8.len(tab.label.Text) or #tab.label.Text) + 2
-            total += tab.weight
-        end
-        local spacing = math.max(0, #tabs - 1) * 2
-        for _, tab in ipairs(tabs) do
-            local share = tab.weight / total
-            tab.button.Size = UDim2.new(share, -spacing * share, 1, -8)
+            tab.button.Size = UDim2.new(0, math.floor((tab.preferredWidth or 24) * ratio), 1, -8)
         end
     end
-
+    local function measureTab(tab)
+        local text = tab.label.Text
+        tab.preferredWidth = math.max(24, math.ceil((utf8.len(text) or #text) * 6.5) + 12)
+        fitTabs()
+        task.defer(function()
+            if not tab.button.Parent then return end
+            local ok, bounds = pcall(function()
+                local params = Instance.new("GetTextBoundsParams")
+                params.Text, params.Font, params.Size, params.Width = text, TEXT_FONT, 9, 10000
+                return tabTextService:GetTextBoundsAsync(params)
+            end)
+            if ok and bounds.X > 0 and tab.button.Parent and tab.label.Text == text then
+                tab.preferredWidth = math.max(24, math.ceil(bounds.X) + 12)
+                fitTabs()
+            end
+        end)
+    end
+    TrackGuiConnection(tabStrip:GetPropertyChangedSignal("AbsoluteSize"):Connect(fitTabs))
 
     local function selectTab(index)
         local tabEntry = tabs[index]
@@ -4827,12 +4840,12 @@ function NexusUI:CreateWindow(options)
     end
 
     function window:AddTab(tabData)
-        local right = 4
-        local tabButton = bind(new("TextButton", {Size = UDim2.new(0, 0, 1, -8), AutomaticSize = Enum.AutomaticSize.None, BackgroundTransparency = 1, Text = string.upper(tostring(tabData and tabData.Title or "Tab")), TextSize = 11, TextScaled = true, TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd, AutoButtonColor = false, LayoutOrder = #tabs + 1, ZIndex = 4}, tabStrip), "TextColor3", dimColor)
+        local right = 6
+        local tabButton = bind(new("TextButton", {Size = UDim2.new(0, 0, 1, -8), AutomaticSize = Enum.AutomaticSize.None, BackgroundTransparency = 1, Text = string.upper(tostring(tabData and tabData.Title or "Tab")), TextSize = 9, TextScaled = true, TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd, AutoButtonColor = false, LayoutOrder = #tabs + 1, ZIndex = 4}, tabStrip), "TextColor3", dimColor)
         tabButton:SetAttribute("KeepFont", true)
-        tabButton.FontFace = Font.new(FONT_BODY, Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
-        new("UITextSizeConstraint", {MinTextSize = 7, MaxTextSize = 11}, tabButton)
-        new("UIPadding", {PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, right)}, tabButton)
+        tabButton.FontFace = TEXT_FONT
+        new("UITextSizeConstraint", {MinTextSize = 7, MaxTextSize = 9}, tabButton)
+        new("UIPadding", {PaddingLeft = UDim.new(0, 6), PaddingRight = UDim.new(0, right)}, tabButton)
         local tabLabel = tabButton
         local tabUnderline = bind(new("Frame", {Size = UDim2.new(1, -8, 0, 2), Position = UDim2.new(0, 4, 1, 3), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 4}, tabButton), "BackgroundColor3", accentColor)
         local tabGlow = icon("glow", 0, 12, accentColor, tabUnderline)
@@ -5440,9 +5453,10 @@ function NexusUI:CreateWindow(options)
             end)
         end
 
-        table.insert(tabs, {button = tabButton, page = tabPage, label = tabLabel, underline = tabUnderline})
-        fitTabs()
-        TrackGuiConnection(tabButton:GetPropertyChangedSignal("Text"):Connect(fitTabs))
+        local entry = {button = tabButton, page = tabPage, label = tabLabel, underline = tabUnderline}
+        table.insert(tabs, entry)
+        measureTab(entry)
+        TrackGuiConnection(tabButton:GetPropertyChangedSignal("Text"):Connect(function() measureTab(entry) end))
         if tabIndex == 1 then
             selectTab(1)
         end
