@@ -528,13 +528,21 @@ end
 
 
 local perfectShotLock
+local ballReference
 function GetCurrentBall(withPhysicsLock)
-    local reference = ReplicatedStorage:FindFirstChild("Basketball")
-    if not reference or not reference:IsA("ObjectValue") then
-        return nil
+    local reference = ballReference
+    if not reference or reference.Parent ~= ReplicatedStorage or reference.Name ~= "Basketball"
+        or not reference.Value or not reference.Value:IsA("BasePart") or not reference.Value:IsDescendantOf(Workspace) then
+        reference = nil
+        for _, child in ipairs(ReplicatedStorage:GetChildren()) do
+            if child.Name == "Basketball" and child:IsA("ObjectValue") then
+                local candidate = child.Value
+                if candidate and candidate:IsA("BasePart") and candidate:IsDescendantOf(Workspace) then reference = child; break end
+            end
+        end
+        ballReference = reference
     end
-
-    local ball = reference.Value
+    local ball = reference and reference.Value
     if ball and ball:IsA("BasePart") and ball:IsDescendantOf(Workspace) then
         if withPhysicsLock then return ball, perfectShotLock and perfectShotLock.ball == ball and os.clock() < perfectShotLock.expires or false end
         return ball
@@ -1786,6 +1794,7 @@ end
     local shotArcHeight = 10
     local quickEpoch, quickPending, quickSkip = 0, false, 0
     local psHooks = {}
+    local pendingLaunch, perfectFlight
 
     local bmPending, bmFlight
     local bmEpoch = 0
@@ -1810,13 +1819,15 @@ end
         if userInputService.MouseBehavior == Enum.MouseBehavior.LockCenter then userInputService.MouseBehavior = flight.Mouse end
         if userInputService.MouseIconEnabled == false then userInputService.MouseIconEnabled = flight.Icon end
     end
-    local function ballOwned()
+    local function ballOwned(candidate)
         local controller = controllers.BallController
+        local ball = candidate or GetCurrentBall()
+        if not ball or not ball.Parent then return false end
         if not controller or type(controller.LocalPlayerIsBallNetworkOwner) ~= "function" then return false end
         local ok, owns = pcall(controller.LocalPlayerIsBallNetworkOwner, controller)
         if not ok or owns ~= true then return false end
         if type(isnetworkowner) == "function" then
-            local success, result = pcall(isnetworkowner, GetCurrentBall())
+            local success, result = pcall(isnetworkowner, ball.AssemblyRootPart or ball)
             if not success or result ~= true then return false end
         end
         return true
@@ -2117,11 +2128,17 @@ end
         if not alive or ScriptUnloaded or guidedMode() ~= shot.Mode or shot.Epoch ~= psEpoch or not playing()
             or character ~= shot.Character or not humanoid or humanoid.Health <= 0 or LocalPlayer.Team ~= shot.Team
             or GetCurrentBall() ~= shot.Ball or not shot.Ball.Parent or shot.Ball.Anchored or targetHoop() ~= shot.Hoop
-            or not shot.Hoop.Parent or shot.OwnHoop and not shot.OwnHoop.Parent or os.clock() > shot.Deadline or not ballOwned() then stopGuidedShot(); return end
+            or not shot.Hoop.Parent or shot.OwnHoop and not shot.OwnHoop.Parent or os.clock() > shot.Deadline then stopGuidedShot(); return end
         local controller = controllers.BallController
         local ok, holder = pcall(controller.GetPlayerPossessingBall, controller)
         if not ok or holder and (holder ~= LocalPlayer or shot.Released or os.clock() - shot.Started > 0.4) then stopGuidedShot(); return end
         if holder then return end
+        if not ballOwned(shot.Ball) then
+            shot.LostOwnership = shot.LostOwnership or os.clock()
+            if os.clock() - shot.LostOwnership > 0.6 then stopGuidedShot() end
+            return
+        end
+        shot.LostOwnership = nil
         shot.Released = true
         dt = math.clamp(dt or 1 / 60, 1 / 240, 1 / 15)
         if shot.Mode == "Extra" and shot.Phase ~= "Strike" then
@@ -2148,6 +2165,7 @@ end
         psEpoch = psEpoch + 1
         stopGuidedShot()
         psReq = nil
+        pendingLaunch, perfectFlight = nil, nil
         if not bmFlight then perfectShotLock = nil end
         quickEpoch = quickEpoch + 1
         quickPending, quickSkip = false, 0
@@ -2160,7 +2178,7 @@ end
                 if rawget(h.node, "_fn") == h.wrapper then rawset(h.node, "_fn", h.fn) end
             else
                 if h.connection then pcall(function() h.connection:Disconnect() end) end
-                pcall(h.enable, h.source)
+                if type(h.enable) == "function" then pcall(h.enable, h.source) end
             end
         end
         table.clear(psHooks)
@@ -2179,72 +2197,104 @@ end
         local v = delta / t + Vector3.new(0, g * t * 0.5, 0)
         return ApplyShotPowerModifier(v, nil, v.Magnitude), t
     end
-    local function psWrap(fn)
-        return function(destination, ...)
-            local pending = bmPending
-            if alive and config.BallManipulation and pending and typeof(destination) == "Vector3"
-                and os.clock() <= pending.expires and playing() and LocalPlayer.Character == pending.char
-                and GetCurrentBall() == pending.ball and pending.ball.Parent and ballOwned() then
-                local controller = controllers.BallController
-                local ok, character = pcall(controller.GetLastCharacterToPossessBall, controller)
-                if ok and character == pending.char then
-                    bmPending = nil
-                    local result = table.pack(fn(destination, ...))
-                    if alive and config.BallManipulation then startBallFlight(pending) end
-                    return unpackArgs(result, 1, result.n)
-                end
-            end
-            local r = psReq
-            local valid = alive and not config.BallManipulation and ((config.PerfectShot or config.RagePerfectShot or config.BallExtraManipulation) or config.ShotArcControl) and r and r.epoch == psEpoch and typeof(destination) == "Vector3"
-                and os.clock() <= r.expires and playing() and LocalPlayer.Character == r.char
-                and GetCurrentBall() == r.ball and targetHoop() == r.hoop
-                and r.ball.Parent and r.hoop.Parent
-            if valid then
-                local c = controllers.BallController
-                if c and type(c.GetPlayerPossessingBall) == "function" then
-                    local ok, holder = pcall(c.GetPlayerPossessingBall, c)
-                    if not ok or holder and holder ~= LocalPlayer then valid = false end
-                end
-            end
-            if not valid then return fn(destination, ...) end
+    local function stopPerfectFlight()
+        local flight = perfectFlight
+        perfectFlight = nil
+        if flight and perfectShotLock == flight.Lock then perfectShotLock = nil end
+    end
+    local function observeShot(destination)
+        if not alive or ScriptUnloaded or typeof(destination) ~= "Vector3" then return end
+        local request, kind
+        if config.BallManipulation then request, kind = bmPending, "Ball"
+        elseif config.PerfectShot or config.RagePerfectShot or config.BallExtraManipulation or config.ShotArcControl then
+            request, kind = psReq, "Shot"
+        end
+        if not request or os.clock() > request.expires or not playing() or LocalPlayer.Character ~= request.char then return end
+        if kind == "Ball" then
+            if request.epoch ~= bmEpoch then return end
+            bmPending = nil
+        else
+            if request.epoch ~= psEpoch or targetHoop() ~= request.hoop then return end
             psReq = nil
-            local epoch, mode = psEpoch, guidedMode()
-            local target = (config.PerfectShot or config.RagePerfectShot or config.BallExtraManipulation) and r.hoop.Position or destination
-            local result = table.pack(fn(target, ...))
-            if alive and ((config.PerfectShot or config.RagePerfectShot or config.BallExtraManipulation) or config.ShotArcControl) and GetCurrentBall() == r.ball
-                and LocalPlayer.Character == r.char and not r.ball.Anchored then
-                if epoch == psEpoch and r.epoch == psEpoch and mode == guidedMode() then
-                    if mode then startGuidedShot(r, mode)
-                    else
-                        local ok, velocity, seconds = pcall(psVelocity, r.ball, target)
-                        if ok and velocity then
-                            r.ball.AssemblyLinearVelocity = velocity
-                            perfectShotLock = {ball = r.ball, expires = os.clock() + seconds + 0.2}
-                        end
-                    end
-                end
-            end
-            return unpackArgs(result, 1, result.n)
         end
+        pendingLaunch = {Request = request, Kind = kind, Mode = guidedMode(), Destination = destination,
+            Expires = math.min(request.expires, os.clock() + 2), Team = LocalPlayer.Team}
     end
-    local function psNative(fn, module)
-        if type(fn) ~= "function" then return false end
-        if type(getfenv) == "function" then
-            local ok, env = pcall(getfenv, fn)
-            if ok and type(env) == "table" and env.script == module then return true end
+    local function updatePendingLaunch()
+        local launch = pendingLaunch
+        if not launch then return end
+        local r = launch.Request
+        local isBall = launch.Kind == "Ball"
+        local character, _, humanoid = localParts()
+        if not alive or ScriptUnloaded or not playing() or LocalPlayer.Team ~= launch.Team
+            or character ~= r.char or not humanoid or humanoid.Health <= 0
+            or isBall and (not config.BallManipulation or r.epoch ~= bmEpoch)
+            or not isBall and (r.epoch ~= psEpoch or launch.Mode ~= guidedMode()
+                or not (config.PerfectShot or config.RagePerfectShot or config.BallExtraManipulation or config.ShotArcControl)
+                or targetHoop() ~= r.hoop or not r.hoop.Parent) then pendingLaunch = nil; return end
+        if os.clock() > launch.Expires then
+            pendingLaunch = nil
+            notifyOnce("shotOwnership", "Shot cancelled: ball control was not granted in time")
+            return
         end
-        if debug and type(debug.info) == "function" then
-            local ok, source = pcall(debug.info, fn, "s")
-            return ok and type(source) == "string" and source:find(module:GetFullName(), 1, true) ~= nil
+        local controller, ball = controllers.BallController, GetCurrentBall()
+        if not controller or not ball or ball.Anchored then return end
+        local ok, holder = pcall(controller.GetPlayerPossessingBall, controller)
+        if not ok then return end
+        if holder and holder ~= LocalPlayer then pendingLaunch = nil; return end
+        if holder then return end
+        local known, previous = pcall(controller.GetLastCharacterToPossessBall, controller)
+        if not known or previous ~= r.char or not ballOwned(ball) then return end
+        pendingLaunch = nil
+        r.ball = ball
+        if isBall then startBallFlight(r); return end
+        if launch.Mode then
+            if not startGuidedShot(r, launch.Mode) then notifyOnce("shotRoute", "The selected shot route is unavailable on this court") end
+            return
         end
-        return false
+        local target = config.PerfectShot and r.hoop.Position or launch.Destination
+        local success, velocity, seconds = pcall(psVelocity, ball, target)
+        if not success or not velocity or not seconds then return end
+        stopPerfectFlight()
+        local flight = {Ball = ball, Hoop = r.hoop, Character = r.char, Team = launch.Team, Epoch = psEpoch,
+            Origin = ball.Position, Velocity = velocity, Gravity = Workspace.Gravity, Started = os.clock(), Duration = seconds}
+        flight.Lock = {ball = ball, expires = flight.Started + seconds + 0.2}
+        perfectFlight, perfectShotLock = flight, flight.Lock
+        ball.AssemblyLinearVelocity = velocity
     end
-    local function psRead(obj, key)
-        local ok, value = pcall(function() return obj[key] end)
-        if ok then return value end
+    local function updatePerfectFlight(dt)
+        local flight = perfectFlight
+        if not flight then return end
+        local character, _, humanoid = localParts()
+        if not alive or ScriptUnloaded or not playing() or flight.Epoch ~= psEpoch
+            or not (config.PerfectShot or config.ShotArcControl) or guidedMode() or config.BallManipulation
+            or character ~= flight.Character or not humanoid or humanoid.Health <= 0 or LocalPlayer.Team ~= flight.Team
+            or GetCurrentBall() ~= flight.Ball or not flight.Ball.Parent or flight.Ball.Anchored
+            or targetHoop() ~= flight.Hoop or not flight.Hoop.Parent
+            or os.clock() > flight.Lock.expires then stopPerfectFlight(); return end
+        local controller = controllers.BallController
+        local ok, holder = pcall(controller.GetPlayerPossessingBall, controller)
+        if not ok or holder then stopPerfectFlight(); return end
+        if not ballOwned(flight.Ball) then
+            flight.LostOwnership = flight.LostOwnership or os.clock()
+            if os.clock() - flight.LostOwnership > 0.15 then stopPerfectFlight() end
+            return
+        end
+        flight.LostOwnership = nil
+        dt = math.clamp(dt or 1 / 60, 1 / 240, 1 / 15)
+        local t = math.min(os.clock() - flight.Started + dt, flight.Duration + 0.2)
+        local target = flight.Origin + flight.Velocity * t - Vector3.new(0, flight.Gravity * t * t * 0.5, 0)
+        local velocity = (target - flight.Ball.Position) / dt + Vector3.new(0, Workspace.Gravity * dt * 0.5, 0)
+        local maximum = math.max(220, flight.Velocity.Magnitude * 2)
+        if velocity.Magnitude > maximum then velocity = velocity.Unit * maximum end
+        flight.Ball.AssemblyLinearVelocity = velocity
     end
+    TrackScriptConnection(RunService.PreSimulation:Connect(function(dt)
+        updatePendingLaunch()
+        updatePerfectFlight(dt)
+    end))
     local function updatePerfectHook()
-        if not ((config.PerfectShot or config.RagePerfectShot or config.BallExtraManipulation) or config.ShotArcControl or config.BallManipulation) then
+        if not (config.PerfectShot or config.RagePerfectShot or config.BallExtraManipulation or config.ShotArcControl or config.BallManipulation) then
             if psSignal or #psHooks > 0 then removePerfectHook() end
             return
         end
@@ -2252,50 +2302,22 @@ end
         local ability = controllers.AbilityController
         local signal = ability and ability.BallService and ability.BallService.Throw
         if not signal then return end
-        if psSignal == signal and #psHooks > 0 then return end
-        if psSignal and psSignal ~= signal then removePerfectHook() end
+        if psSignal == signal and #psHooks > 0 then
+            local ok, connected = pcall(function() return psHooks[1].connection.Connected end)
+            if not ok or connected ~= false then return end
+        end
+        if psSignal then removePerfectHook() end
         if os.clock() < psNext then return end
         psNext = os.clock() + 1
-        local folder = ReplicatedStorage:FindFirstChild("Controllers")
-        local module = folder and folder:FindFirstChild("BallController")
-        if not module then return end
-        if rawget(signal, "_directConnect") == false then
-            local inner = rawget(signal, "_signal")
-            local node = type(inner) == "table" and rawget(inner, "_handlerListHead")
-            while node do
-                local fn = rawget(node, "_fn")
-                if rawget(node, "Connected") and psNative(fn, module) then
-                    local wrapper = psWrap(fn)
-                    rawset(node, "_fn", wrapper)
-                    psHooks[#psHooks + 1] = {node = node, fn = fn, wrapper = wrapper}
-                end
-                node = rawget(node, "_next")
-            end
-        elseif type(getconnections) == "function" then
-            local remote = rawget(signal, "_re")
-            local ok, list = pcall(function() return getconnections(remote.OnClientEvent) end)
-            if ok and type(list) == "table" then
-                for _, c in ipairs(list) do
-                    local fn = psRead(c, "Function")
-                    local disable, enable = psRead(c, "Disable"), psRead(c, "Enable")
-                    if psRead(c, "Enabled") ~= false and type(disable) == "function"
-                        and type(enable) == "function" and psNative(fn, module) then
-                        local wrapper = psWrap(fn)
-                        local success, connection = pcall(function() return remote.OnClientEvent:Connect(wrapper) end)
-                        if success and connection then
-                            local disabled = pcall(disable, c)
-                            if disabled then
-                                psHooks[#psHooks + 1] = {source = c, enable = enable, connection = connection}
-                            else
-                                pcall(function() connection:Disconnect() end)
-                            end
-                        end
-                    end
-                end
-            end
+        local ok, connection = pcall(function() return signal:Connect(observeShot) end)
+        if ok and connection then
+            psSignal = signal
+            psHooks[1] = {connection = connection}
+        else
+            notifyOnce("shotConfirmation", "Cannot observe the game's shot confirmation")
         end
-        if #psHooks > 0 then psSignal = signal end
     end
+
     local trajectory, trajectoryAnchor, landingMarker, landingLabel
     local trajectoryPoints, trajectoryBeams = {}, {}
     local trajectoryTick = 0
