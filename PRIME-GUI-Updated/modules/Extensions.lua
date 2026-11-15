@@ -228,18 +228,6 @@ do
         if flyAttachment then flyAttachment:Destroy(); flyAttachment = nil end
         if humanoid then restore(humanoid, "AutoRotate") end
     end
-    local liftService = {Alive = true}
-    NexusUI.State.BallExtraLiftService = liftService
-    local function activeLift()
-        local lift = NexusUI.State.BallExtraLift
-        if type(lift) ~= "table" then return end
-        if lift.Service ~= liftService or lift.Character ~= character or not root or not humanoid or humanoid.Health <= 0
-            or type(lift.Expires) ~= "number" or os.clock() > lift.Expires or typeof(lift.Velocity) ~= "Vector3" then
-            if lift.Service == liftService and NexusUI.State.BallExtraLift == lift then NexusUI.State.BallExtraLift = nil end
-            return
-        end
-        return lift
-    end
     local function bindCharacter()
         local nextCharacter = player.Character
         local nextHumanoid = nextCharacter and nextCharacter:FindFirstChildOfClass("Humanoid")
@@ -699,15 +687,13 @@ do
                 if config.Noclip then override(part, "CanCollide", false) else restore(part, "CanCollide") end
             end
         end
-        local lift = activeLift()
-        if config.Fly or lift then
+        if config.Fly then
             if not flyVelocity then
                 flyAttachment = make("Attachment", {Name = "CourtsideFlight"}, root)
                 flyVelocity = make("LinearVelocity", {Name = "CourtsideVelocity", Attachment0 = flyAttachment,
                     RelativeTo = Enum.ActuatorRelativeTo.World, ForceLimitsEnabled = false, VectorVelocity = Vector3.zero}, root)
             end
             override(humanoid, "AutoRotate", false)
-            if lift then flyVelocity.VectorVelocity = lift.Velocity; return end
             local movement = humanoid.MoveDirection * Vector3.new(1, 0, 1)
             local camera = workspace.CurrentCamera
             local y = vertical
@@ -734,7 +720,7 @@ do
         updateControllers(dt)
         extras.update(dt)
         if root and humanoid and humanoid.Health > 0 then
-            if not config.Fly and not activeLift() then restore(humanoid, "AutoRotate") end
+            if not config.Fly then restore(humanoid, "AutoRotate") end
             if config.Speed then override(humanoid, "WalkSpeed", config.WalkSpeed) end
             if config.Jump then
                 if humanoid.UseJumpPower then override(humanoid, "JumpPower", math.sqrt(2 * workspace.Gravity * config.JumpHeight))
@@ -810,10 +796,6 @@ do
     local function cleanup()
         if not alive then return end
         alive = false
-        liftService.Alive = false
-        if NexusUI.State.BallExtraLiftService == liftService then NexusUI.State.BallExtraLiftService = nil end
-        local lift = NexusUI.State.BallExtraLift
-        if type(lift) == "table" and lift.Service == liftService then NexusUI.State.BallExtraLift = nil end
         Run:UnbindFromRenderStep(renderName)
         for _, connection in ipairs(connections) do
             pcall(function() connection:Disconnect() end)
