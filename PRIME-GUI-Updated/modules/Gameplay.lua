@@ -1807,8 +1807,9 @@ end
         local flight = bmFlight
         bmFlight, bmTouch, bmStick = nil, nil, Vector2.zero
         if not flight then return end
-        RunService:UnbindFromRenderStep(bmRender)
         if perfectShotLock == flight.Lock then perfectShotLock = nil end
+        if flight.Mode ~= "Manual" then return end
+        RunService:UnbindFromRenderStep(bmRender)
         local camera = flight.Camera
         if Workspace.CurrentCamera == camera and camera.CameraType == Enum.CameraType.Scriptable
             and camera.CameraSubject == flight.Ball and not Workspace:FindFirstChild("CamRig") then
@@ -1859,9 +1860,10 @@ end
         local enabled = flight.Mode == "Perfect" and config.PerfectShot or flight.Mode == "Manual" and config.BallManipulation
         if not alive or not enabled or ScriptUnloaded or not playing() or not humanoid or humanoid.Health <= 0
             or character ~= flight.Character or LocalPlayer.Team ~= flight.Team or GetCurrentBall() ~= flight.Ball
-            or not flight.Ball.Parent or flight.Ball.Anchored or Workspace.CurrentCamera ~= flight.Camera
+            or not flight.Ball.Parent or flight.Ball.Anchored or not ballOwned(flight.Ball) then return false end
+        if flight.Mode == "Manual" and (Workspace.CurrentCamera ~= flight.Camera
             or flight.Camera.CameraType ~= Enum.CameraType.Scriptable or flight.Camera.CameraSubject ~= flight.Ball
-            or Workspace:FindFirstChild("CamRig") or not ballOwned(flight.Ball) then return false end
+            or Workspace:FindFirstChild("CamRig")) then return false end
         if flight.Mode == "Perfect" and (targetHoop() ~= flight.Hoop or not flight.Hoop.Parent or os.clock() > flight.Deadline) then return false end
         local ok, holder = pcall(controllers.BallController.GetPlayerPossessingBall, controllers.BallController)
         if not ok or holder and (holder ~= LocalPlayer or flight.Released or os.clock() - flight.Started > 0.4) then return false end
@@ -1871,30 +1873,37 @@ end
     local function startBallFlight(request)
         if request.epoch ~= bmEpoch then return end
         stopBallFlight()
-        local ball, camera = request.ball, Workspace.CurrentCamera
+        local ball = request.ball
         local mode = request.mode or "Manual"
         local enabled = mode == "Perfect" and config.PerfectShot or mode == "Manual" and config.BallManipulation
-        if not alive or not enabled or not playing() or not ballOwned(ball) or not camera
-            or camera.CameraType == Enum.CameraType.Scriptable or ball.Anchored or not ball.Parent
+        if not alive or not enabled or not playing() or not ballOwned(ball) or ball.Anchored or not ball.Parent
             or GetCurrentBall() ~= ball or LocalPlayer.Character ~= request.char then return end
         local velocity = ball.AssemblyLinearVelocity
         if mode == "Perfect" and (velocity.Magnitude < 0.01 or not request.hoop or request.hoop ~= targetHoop()) then return end
-        local look = velocity.Magnitude > 0.01 and velocity.Unit or camera.CFrame.LookVector
-        bmYaw, bmPitch = math.atan2(-look.X, -look.Z), math.asin(math.clamp(look.Y, -1, 1))
+        local look = velocity.Magnitude > 0.01 and velocity.Unit or Vector3.new(0, 0, -1)
         local baseSpeed = mode == "Perfect" and velocity.Magnitude or math.clamp(velocity.Magnitude, 40, 250)
-        local flight = {Ball = ball, Camera = camera, Character = request.char, Team = LocalPlayer.Team, Mode = mode,
+        local flight = {Ball = ball, Character = request.char, Team = LocalPlayer.Team, Mode = mode,
             Direction = look, Started = os.clock(), BaseSpeed = baseSpeed,
-            Speed = mode == "Manual" and config.SlowBall and 10 or baseSpeed,
-            Subject = camera.CameraSubject, Type = camera.CameraType, Frame = camera.CFrame, Focus = camera.Focus,
-            Mouse = userInputService.MouseBehavior, Icon = userInputService.MouseIconEnabled}
+            Speed = mode == "Manual" and config.SlowBall and 10 or baseSpeed}
         if mode == "Perfect" then
             flight.Hoop = request.hoop
             flight.Points, flight.Length = perfectPath(ball.Position, request.hoop.Position)
             flight.Progress, flight.Index = 0, 1
             flight.Deadline = os.clock() + flight.Length / flight.Speed + 4
         end
+        local camera
+        if mode == "Manual" then
+            camera = Workspace.CurrentCamera
+            if not camera or camera.CameraType == Enum.CameraType.Scriptable then return end
+            if velocity.Magnitude <= 0.01 then flight.Direction = camera.CFrame.LookVector end
+            bmYaw, bmPitch = math.atan2(-flight.Direction.X, -flight.Direction.Z), math.asin(math.clamp(flight.Direction.Y, -1, 1))
+            flight.Camera, flight.Subject, flight.Type = camera, camera.CameraSubject, camera.CameraType
+            flight.Frame, flight.Focus = camera.CFrame, camera.Focus
+            flight.Mouse, flight.Icon = userInputService.MouseBehavior, userInputService.MouseIconEnabled
+        end
         flight.Lock = {ball = ball, expires = flight.Deadline or math.huge}
         bmFlight, perfectShotLock = flight, flight.Lock
+        if mode == "Perfect" then return true end
         camera.CameraSubject, camera.CameraType = ball, Enum.CameraType.Scriptable
         if userInputService.MouseEnabled and userInputService:GetLastInputType() ~= Enum.UserInputType.Touch then
             userInputService.MouseBehavior, userInputService.MouseIconEnabled = Enum.MouseBehavior.LockCenter, false
@@ -1902,10 +1911,7 @@ end
         RunService:BindToRenderStep(bmRender, Enum.RenderPriority.Last.Value + 1, function(dt)
             if bmFlight ~= flight then return end
             if not ballFlightValid(flight) then stopBallFlight(); return end
-            if flight.Mode == "Perfect" then
-                local direction = flight.Direction
-                bmYaw, bmPitch = math.atan2(-direction.X, -direction.Z), math.asin(math.clamp(direction.Y, -1, 1))
-            elseif not userInputService:GetFocusedTextBox() then
+            if not userInputService:GetFocusedTextBox() then
                 bmYaw -= bmStick.X * math.min(dt, 0.05) * 2.5
                 bmPitch = math.clamp(bmPitch + bmStick.Y * math.min(dt, 0.05) * 2, -1.4, 1.4)
             end
@@ -1948,7 +1954,7 @@ end
         if not ballFlightValid(flight) then stopBallFlight(); return end
         if not flight.Released then return end
         dt = math.clamp(dt or 1 / 60, 1 / 240, 1 / 15)
-        local direction = flight.Direction or flight.Camera.CFrame.LookVector
+        local direction = flight.Direction or Vector3.new(0, 0, -1)
         if flight.Mode == "Perfect" then
             local progress = math.min(flight.Length, flight.Progress + flight.Speed * dt)
             local target, index = pathPoint(flight.Points, progress, flight.Index)
