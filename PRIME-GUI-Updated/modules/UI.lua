@@ -42,8 +42,7 @@ GuiParent = GetGuiParent()
 if not GuiParent then return end
 
 function IsMobileDevice()
-    return string.lower(LocalPlayer.Name) == "legenda_conexion"
-        or userInputService.TouchEnabled and not userInputService.MouseEnabled
+    return userInputService.TouchEnabled and not userInputService.MouseEnabled
 end
 
 IS_MOBILE = IsMobileDevice()
@@ -5450,6 +5449,165 @@ function NexusUI:CreateWindow(options)
             end)
             table.insert(controls, buttonFrame)
             return buttonFrame
+        end
+
+        local featureDescriptions = {
+            ["Steal Support"] = "Helps you stay close enough to steal the ball.",
+            ["Auto Dribble"] = "Dribbles when an opponent tries to steal your ball.",
+            ["Better Auto Steal"] = "Steals when a nearby opponent's ball protection ends.",
+            ["No Ability Cooldown"] = "Lets you attempt abilities without waiting for their cooldown.",
+            ["No Stun"] = "Helps you keep moving after being stunned.",
+            ["No Ragdoll"] = "Helps your character stay upright.",
+            ["No Steal Fall"] = "Prevents the falling animation after a failed steal.",
+            ["Auto Block"] = "Jumps to block nearby opponents' shots.",
+            ["Auto Block Dunk"] = "Jumps when a nearby opponent starts a dunk.",
+            ["Auto Pass"] = "Passes the ball when a nearby opponent threatens you.",
+            ["Pass Speed"] = "Changes how fast your passes travel.",
+            ["Pass Ball Speed"] = "Sets the speed of your passes.",
+            ["Pass Target"] = "Chooses who receives your passes.",
+            ["Perfect Shot"] = "Guides your shot into the hoop. Does not work with a VPN or ping above 100–120 ms.",
+            ["Silent Aim"] = "Aims your shots at the hoop without moving your camera.",
+            ["Silent Aim Range"] = "Sets the distance at which shot aiming is active.",
+            ["Shot Trajectory"] = "Shows the expected path of your next shot.",
+            ["Ball Trajectory"] = "Shows the ball's predicted path.",
+            ["Shot Arc Control"] = "Lets you choose how high your shots travel.",
+            ["Shot Arc Height"] = "Sets the height of your shot arc.",
+            ["Quick Release"] = "Releases your shots sooner.",
+            ["Auto Dunk"] = "Attempts a dunk when you are close enough to the hoop.",
+            ["Ball Manipulation"] = "Lets you steer your ball while it is in the air.",
+            ["Slowing Down the Ball"] = "Slows the ball while you steer it.",
+            ["Infinite Dribble"] = "Lets you continue dribbling without a series limit.",
+            ["Infinite Pump Fakes"] = "Lets you repeat pump fakes.",
+            ["Steal Danger"] = "Warns you when nearby opponents threaten your ball.",
+            ["No Barrier"] = "Lets you move through court barriers.",
+            ["Thief — Unrestricted Pillage [Client]"] = "Lets Thief attempt to copy more styles and abilities.",
+            ["Genius Auto Perfect Lockdown"] = "Automatically times the Lockdown skillcheck.",
+            ["Tatlis V2 Auto Soul Catch Skillcheck"] = "Automatically times the Soul Catch skillcheck.",
+            ["Copycat Copy Target Selector"] = "Chooses the opponent whose ability you copy.",
+            ["[Experimental] Copycat Copy Slot"] = "Chooses which ability slot to copy.",
+            ["Special Pass Target"] = "Chooses the teammate for supported special passes.",
+            ["Switcher Switch Target"] = "Chooses the teammate you switch with.",
+            ["Speed"] = "Changes how fast your character moves.",
+            ["Walk Speed"] = "Sets your character's movement speed.",
+            ["Jump"] = "Changes how high your character jumps.",
+            ["Jump Height"] = "Sets your jump height.",
+            ["Infinite Jump"] = "Lets you jump again while in the air.",
+            ["Fly"] = "Lets you fly around the court.",
+            ["Fly Speed"] = "Sets your flying speed.",
+            ["Noclip"] = "Lets you move through solid objects.",
+            ["ESP"] = "Highlights players around you.",
+            ["Boxes"] = "Draws a box around each visible player marker.",
+            ["Names"] = "Shows player names.",
+            ["Health"] = "Shows player health.",
+            ["Player Style"] = "Shows each player's equipped style.",
+            ["Player Zone"] = "Shows each player's equipped zone.",
+            ["Distance"] = "Shows the distance to other players.",
+            ["Players Filter"] = "Chooses which players appear in your highlights.",
+            ["Ball Marker"] = "Highlights the basketball.",
+            ["ESP Basketball"] = "Highlights the basketball.",
+            ["Ball Owner Marker"] = "Highlights the player holding the ball.",
+            ["Hoops Markers"] = "Marks the hoops on the court.",
+            ["Trajectory Horizon"] = "Sets how far ahead the ball path is shown.",
+            ["No CD Steal (Visual Only)"] = "Removes the displayed steal cooldown.",
+            ["Zone Dribble Boost"] = "Increases dribble speed while your zone is active.",
+            ["Dribble Multiplier"] = "Sets the strength of your dribble speed boost.",
+            ["Zone Block Range"] = "Increases your block reach while your zone is active.",
+            ["Block Multiplier"] = "Sets the strength of your block range boost.",
+            ["Always Run"] = "Keeps your character sprinting.",
+            ["Extended Dunk"] = "Increases dunk range while your zone is active.",
+            ["Dunk Distance x"] = "Sets the strength of your dunk range boost.",
+            ["Extra Pump Fakes"] = "Adds more pump fakes while your zone is active.",
+            ["Pump Fakes Count"] = "Sets the number of available pump fakes.",
+            ["Extended Dribble Chain"] = "Adds more dribbles to each series.",
+            ["Dribbles In Series"] = "Sets the number of dribbles in each series.",
+            ["Pass Boost"] = "Makes passes faster while your zone is active.",
+            ["Pass Speed x"] = "Sets the strength of your pass speed boost.",
+            ["Anti Slow"] = "Reduces movement slow effects.",
+            ["Inventory HUD"] = "Shows your style, spins, pity and cooldowns.",
+            ["No Camera Shake"] = "Stops camera shaking during gameplay.",
+            ["No Dynamic FOV"] = "Keeps your camera view from zooming during moves.",
+            ["Low Graphics"] = "Reduces visual detail to improve performance.",
+            ["Auto Play"] = "Automatically joins an available team position.",
+            ["Team"] = "Chooses the team to join.",
+            ["Auto Farm Candy"] = "Collects nearby candy and returns you to your position.",
+            ["Pump Fake Animation"] = "Chooses the animation shown during pump fakes.",
+            ["Jackpot Steal"] = "Uses Jackpot Steal when a nearby opponent is in range.",
+            ["Jackpot Steal Delay (ms)"] = "Sets how long to wait before using Jackpot Steal.",
+            ["Ability Jump Height (%)"] = "Changes jump height during supported abilities.",
+            ["Dribble Travel (%)"] = "Changes how far supported dribble moves travel.",
+            ["Steal Range"] = "Sets how close an opponent must be for auto steal.",
+            ["Cosmetics"] = "Chooses a cosmetic effect for your character.",
+            ["Shot Power Modifier"] = "Changes the speed of your shots.",
+            ["Shot Power Multiplier"] = "Sets the strength of your shot speed boost.",
+            ["Max Zoom"] = "Lets you zoom the camera farther out.",
+            ["Anti Slip"] = "Helps prevent slipping and falling.",
+            ["FOV Changer"] = "Changes how wide your camera view is.",
+            ["FOV Value"] = "Sets the width of your camera view.",
+            ["No Shadow"] = "Removes shadows from the scene.",
+            ["Saturation"] = "Changes the intensity of scene colors.",
+            ["Saturation Level"] = "Sets how vivid the scene colors look.",
+            ["Time Changer"] = "Changes the time of day you see.",
+            ["Time of Day"] = "Chooses the time of day you see.",
+            ["Emote Animation"] = "Chooses an emote to play.",
+            ["Stop anim"] = "Stops your current emote.",
+            ["Suicide"] = "Resets your character.",
+        }
+        local function descriptionFor(kind, id, data)
+            local title = tostring(data and data.Title or id or "this setting")
+            if featureDescriptions[title] then return featureDescriptions[title] end
+            if title:find("Extension", 1, true) then return "Makes this movement ability travel farther." end
+            if title:find("Hang Time", 1, true) then return "Keeps you in the air longer during this ability." end
+            local description = data and data.Description
+            if type(description) == "string" and description ~= "" then
+                local text = description:lower()
+                local technical = false
+                for _, word in ipairs({"module", "callback", "executor", "native", "client", "server", "hook", "local ", "button", "input"}) do
+                    if text:find(word, 1, true) then technical = true; break end
+                end
+                if not technical then return description end
+            end
+            local prefix = kind == "AddSlider" and "Adjusts " or kind == "AddDropdown" and "Chooses " or kind == "AddButton" and "Applies " or "Enables "
+            return prefix .. title:lower() .. "."
+        end
+        local function addFeatureDetails(parent, text, color, expanded)
+            local frame = new("Frame", {Name = "FeatureDetails", Size = UDim2.new(1, 0, 0, 18), BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true, LayoutOrder = #controls + 1}, parent)
+            frame:SetAttribute("BlockWindowDrag", true)
+            local button = bind(new("TextButton", {Name = "ExpandDescription", Size = UDim2.fromOffset(62, 18), Position = UDim2.new(1, -62, 0, 0), BackgroundTransparency = 1, BorderSizePixel = 0, Text = "+ Details", TextSize = 9, AutoButtonColor = false, ZIndex = 8}, frame), "TextColor3", dimColor)
+            button:SetAttribute("KeepFont", true)
+            button.FontFace = TEXT_FONT
+            local label = caption(frame, {Name = "FeatureDescription", Size = UDim2.new(1, -10, 0, 0), Position = UDim2.fromOffset(5, 21), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Text = text, TextSize = 10, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top}, function() return color or COLOR_TEXT_DIM end)
+            local open, tween = expanded == true, nil
+            local function refresh(animated)
+                if not frame.Parent then return end
+                if tween then tween:Cancel() end
+                button.Text = open and "− Details" or "+ Details"
+                label.Visible = open
+                local height = open and math.max(38, 27 + label.TextBounds.Y) or 18
+                if animated then tween = TweenService:Create(frame, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, height)}); tween:Play()
+                else frame.Size = UDim2.new(1, 0, 0, height) end
+            end
+            TrackGuiConnection(button.Activated:Connect(function() open = not open; refresh(true) end))
+            TrackGuiConnection(label:GetPropertyChangedSignal("TextBounds"):Connect(function() refresh(false) end))
+            TrackGuiConnection(frame.Destroying:Connect(function() if tween then tween:Cancel() end end))
+            table.insert(controls, frame)
+            refresh(false)
+            return function(value) label.Text = tostring(value or ""); refresh(false) end
+        end
+        for _, kind in ipairs({"AddToggle", "AddSlider", "AddDropdown", "AddButton"}) do
+            local original = tabObject[kind]
+            tabObject[kind] = function(self, id, data)
+                if kind == "AddButton" then data = id; id = data and data.Title end
+                data = data or {}
+                local clean = table.clone(data)
+                clean.ShowDescription, clean.Description = false, nil
+                local parent = getControlParent()
+                local result
+                if kind == "AddButton" then result = original(self, clean) else result = original(self, id, clean) end
+                local setDescription = addFeatureDetails(parent, descriptionFor(kind, id, data), data.DescriptionColor, id == "PerfectShot")
+                local option = id and NexusUI.Options[id]
+                if kind == "AddToggle" and option then option.SetDescription = function(_, value) setDescription(value) end end
+                return result
+            end
         end
 
         local tabIndex = #tabs + 1
