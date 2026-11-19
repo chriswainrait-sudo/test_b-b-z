@@ -5575,19 +5575,34 @@ function NexusUI:CreateWindow(options)
             local button = bind(new("TextButton", {Name = "ExpandDescription", Size = UDim2.fromOffset(62, 18), Position = UDim2.new(1, -62, 0, 0), BackgroundTransparency = 1, BorderSizePixel = 0, Text = "+ Details", TextSize = 9, AutoButtonColor = false, ZIndex = 8}, frame), "TextColor3", dimColor)
             button:SetAttribute("KeepFont", true)
             button.FontFace = TEXT_FONT
-            local label = caption(frame, {Name = "FeatureDescription", Size = UDim2.new(1, -10, 0, 0), Position = UDim2.fromOffset(5, 21), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Text = text, TextSize = 10, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top}, function() return color or COLOR_TEXT_DIM end)
+            local label = new("TextLabel", {Name = "FeatureDescription", Size = UDim2.new(1, -10, 0, 15), Position = UDim2.fromOffset(5, 21), BackgroundTransparency = 1, BorderSizePixel = 0, Text = text, Font = Enum.Font.Gotham, TextSize = 11, TextWrapped = true, TextScaled = false, TextTruncate = Enum.TextTruncate.None, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top})
+            label:SetAttribute("KeepFont", true)
+            bind(label, "TextColor3", function() return color or COLOR_TEXT_DIM end)
+            label.Parent = frame
             local open, tween = expanded == true, nil
             local function refresh(animated)
                 if not frame.Parent then return end
                 if tween then tween:Cancel() end
                 button.Text = open and "− Details" or "+ Details"
                 label.Visible = open
-                local height = open and math.max(38, 27 + label.TextBounds.Y) or 18
+                local height = 18
+                if open then
+                    local width = frame.AbsoluteSize.X > 10 and frame.AbsoluteSize.X - 10 or 280
+                    local bounds = tabTextService:GetTextSize(label.Text, label.TextSize, Enum.Font.Gotham, Vector2.new(width, 10000))
+                    local textHeight = math.max(15, math.ceil(bounds.Y) + 3)
+                    label.Size = UDim2.new(1, -10, 0, textHeight)
+                    height = 27 + textHeight
+                end
                 if animated then tween = TweenService:Create(frame, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, height)}); tween:Play()
                 else frame.Size = UDim2.new(1, 0, 0, height) end
             end
             TrackGuiConnection(button.Activated:Connect(function() open = not open; refresh(true) end))
-            TrackGuiConnection(label:GetPropertyChangedSignal("TextBounds"):Connect(function() refresh(false) end))
+            TrackGuiConnection(label:GetPropertyChangedSignal("Text"):Connect(function() refresh(false) end))
+            local previousWidth = frame.AbsoluteSize.X
+            TrackGuiConnection(frame:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+                local width = frame.AbsoluteSize.X
+                if width ~= previousWidth then previousWidth = width; refresh(false) end
+            end))
             TrackGuiConnection(frame.Destroying:Connect(function() if tween then tween:Cancel() end end))
             table.insert(controls, frame)
             refresh(false)
