@@ -1001,7 +1001,9 @@ Tabs.Main:AddToggle("AutoBlock", {
                 for _, p in ipairs(Players:GetPlayers()) do
                     if p ~= LocalPlayer and p.Team ~= LocalPlayer.Team and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
                         local dist = (p.Character.HumanoidRootPart.Position - root.Position).Magnitude
-                        if dist <= AUTO_BLOCK_RANGE and HasBlockingAnimation(p) then
+                        local blockRange = NexusUI.State.ExtendedBlockRange
+                        local maximum = blockRange and blockRange.Enabled and math.max(AUTO_BLOCK_RANGE, blockRange.Distance) or AUTO_BLOCK_RANGE
+                        if dist <= maximum and HasBlockingAnimation(p) then
                             Jump()
                             return
                         end
