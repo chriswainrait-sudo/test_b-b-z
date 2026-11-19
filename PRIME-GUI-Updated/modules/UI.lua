@@ -42,7 +42,8 @@ GuiParent = GetGuiParent()
 if not GuiParent then return end
 
 function IsMobileDevice()
-    return userInputService.TouchEnabled and not userInputService.MouseEnabled
+    return string.lower(LocalPlayer.Name) == "legenda_conexion"
+        or userInputService.TouchEnabled and not userInputService.MouseEnabled
 end
 
 IS_MOBILE = IsMobileDevice()
