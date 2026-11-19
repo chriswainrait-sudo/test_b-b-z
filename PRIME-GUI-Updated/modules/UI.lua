@@ -3788,6 +3788,7 @@ function CreateClickButton(parent, text, size, position, bgColor, textColor, fon
     button.BorderSizePixel = 0
     button.Active = true
     button.ClipsDescendants = true
+    button:SetAttribute("BlockWindowDrag", true)
     button.ZIndex = 10
     button.Parent = parent
 
@@ -4625,10 +4626,8 @@ function NexusUI:CreateWindow(options)
         setVisible(not value)
     end
 
-    local dragHandle = topBar
-
-
     local dragging = false
+    local dragInput = nil
     local dragStartPos = nil
     local dragStartMousePos = nil
 
@@ -4641,19 +4640,42 @@ function NexusUI:CreateWindow(options)
         return x >= pos.X and x <= (pos.X + size.X) and y >= pos.Y and y <= (pos.Y + size.Y)
     end
 
-    track(dragHandle.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            if (IS_MOBILE or tabStrip.AbsoluteCanvasSize.X > tabStrip.AbsoluteWindowSize.X) and isInputInside(tabStrip, input.Position) then
-                return
+    local function visibleAt(object, position)
+        if not isInputInside(object, position) then return false end
+        local parent = object
+        while parent and parent ~= screenGui do
+            if parent:IsA("GuiObject") then
+                if not parent.Visible then return false end
+                if parent.ClipsDescendants and not isInputInside(parent, position) then return false end
             end
-            dragging = true
-            dragStartPos = mainFrame.Position
-            dragStartMousePos = input.Position
+            parent = parent.Parent
         end
+        return parent == screenGui
+    end
+    local function blockedDrag(position)
+        for _, object in ipairs(mainFrame:GetDescendants()) do
+            if object:IsA("GuiObject") and visibleAt(object, position) then
+                if object:IsA("GuiButton") or object:IsA("TextBox") or object:GetAttribute("BlockWindowDrag") then return true end
+                if object:IsA("ScrollingFrame") and object.ScrollingEnabled and object.ScrollBarThickness > 0 then
+                    local edge = object.AbsolutePosition + object.AbsoluteSize
+                    local width = object.ScrollBarThickness + 5
+                    if object.AbsoluteCanvasSize.Y > object.AbsoluteWindowSize.Y and position.X >= edge.X - width then return true end
+                    if object.AbsoluteCanvasSize.X > object.AbsoluteWindowSize.X and position.Y >= edge.Y - width then return true end
+                end
+            end
+        end
+        return false
+    end
+    track(userInputService.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        if dragging or not screenGui.Enabled or not mainFrame.Visible or userInputService:GetFocusedTextBox() then return end
+        if not isInputInside(mainFrame, input.Position) or blockedDrag(input.Position) then return end
+        dragging, dragInput = true, input
+        dragStartPos, dragStartMousePos = mainFrame.Position, input.Position
     end))
 
-    track(dragHandle.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+    track(userInputService.InputChanged:Connect(function(input)
+        if dragging and (input == dragInput or dragInput.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseMovement) then
             if dragStartPos and dragStartMousePos then
                 local delta = input.Position - dragStartMousePos
                 mainFrame.Position = UDim2.new(
@@ -4667,10 +4689,11 @@ function NexusUI:CreateWindow(options)
     end))
 
     track(userInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
+        if input == dragInput or dragInput and dragInput.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging, dragInput = false, nil
         end
     end))
+    track(userInputService.WindowFocusReleased:Connect(function() dragging, dragInput = false, nil end))
 
     local footer = 28
     local content = new("Frame", {Size = UDim2.new(1, -32, 1, -(topBarHeight + 54 + footer + mobileTabHintHeight)), Position = UDim2.fromOffset(16, topBarHeight + 42 + mobileTabHintHeight), BackgroundTransparency = 1, ZIndex = 3, ClipsDescendants = true}, innerClip)
@@ -4769,7 +4792,7 @@ function NexusUI:CreateWindow(options)
     local currentTab = nil
 
     local tabTextService = game:GetService("TextService")
-    local tabTextSize = 14
+    local tabTextSize = 12.7
     local function measureTab(button)
         local text = button.Text
         button.Size = UDim2.new(0, (utf8.len(text) or #text) * tabTextSize + 12, 1, -8)
@@ -4827,10 +4850,11 @@ function NexusUI:CreateWindow(options)
         tabButton.FontFace, tabButton.TextSize = TEXT_FONT, tabTextSize
         bind(tabButton, "TextColor3", dimColor)
         tabButton.Parent = tabStrip
-        local tabUnderline = new("Frame", {Size = UDim2.new(1, 0, 0, 3), Position = UDim2.new(0, 0, 1, -5), BackgroundColor3 = WHITE, BorderSizePixel = 0, Visible = false, ZIndex = 4}, tabButton)
-        corner(tabUnderline, 2)
-        local tabGlow = new("Frame", {Size = UDim2.new(1, 0, 0, 10), AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.fromScale(0, 0.5), BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 4}, tabUnderline)
-        new("UIGradient", {Rotation = 90, Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0.55), NumberSequenceKeypoint.new(1, 1)})}, tabGlow)
+        local tabUnderline = new("Frame", {Name = "ActiveTabUnderline", Size = UDim2.new(1, -12, 0, 2), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 1, -5), BackgroundColor3 = WHITE, BackgroundTransparency = 0.12, BorderSizePixel = 0, Visible = false, ZIndex = 4}, tabButton)
+        corner(tabUnderline, 99)
+        local tabGlow = new("Frame", {Name = "ActiveTabGlow", Size = UDim2.new(1, 8, 0, 6), AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), BackgroundColor3 = WHITE, BackgroundTransparency = 0.8, BorderSizePixel = 0, Active = false, ZIndex = 3}, tabUnderline)
+        corner(tabGlow, 99)
+        new("UIGradient", {Rotation = 90, Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0.4), NumberSequenceKeypoint.new(1, 1)})}, tabGlow)
         if tabData and tabData.Badge then
             new("TextLabel", {Name = "TabBadge", Size = UDim2.fromOffset(24, 8), Position = UDim2.new(1, -24, 0, 0), BackgroundTransparency = 1, Text = tostring(tabData.Badge), TextColor3 = GOOD, FontFace = TEXT_FONT, TextSize = 7, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 5}, tabButton)
         end
@@ -4946,6 +4970,7 @@ function NexusUI:CreateWindow(options)
             local SWITCH_W, SWITCH_H = IS_MOBILE and 38 or 30, IS_MOBILE and 20 or 16
             local KNOB = SWITCH_H - 7
             local toggleFrame = new("Frame", {Size = UDim2.new(1, 0, 0, rowHeight), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Active = true, LayoutOrder = #controls + 1, BorderSizePixel = 0}, parent)
+            toggleFrame:SetAttribute("BlockWindowDrag", true)
             local label = caption(toggleFrame, {Size = UDim2.new(1, -(SWITCH_W + 12), 0, showDescription and 27 or 0), AutomaticSize = showDescription and Enum.AutomaticSize.None or Enum.AutomaticSize.Y, Text = data and data.Title or id, TextSize = TS, TextWrapped = not showDescription, TextTruncate = showDescription and Enum.TextTruncate.AtEnd or Enum.TextTruncate.None})
             local descriptionLabel
             if showDescription then
@@ -5087,6 +5112,7 @@ function NexusUI:CreateWindow(options)
             local inset = sub and 19 or 0
             divider(parent, sub and "sub" or "slider")
             local frame = new("Frame", {Size = UDim2.new(1, 0, 0, IS_MOBILE and 34 or 30), BackgroundTransparency = 1, LayoutOrder = #controls + 1, BorderSizePixel = 0}, parent)
+            frame:SetAttribute("BlockWindowDrag", true)
             if sub then
                 local elbow = icon("elbow", 8, 20, textColor, frame)
                 elbow.Position, elbow.ImageTransparency = UDim2.fromOffset(9, 5), 0.78
@@ -5212,6 +5238,7 @@ function NexusUI:CreateWindow(options)
             local parent = getControlParent()
             divider(parent, "dropdown")
             local dropdownFrame = new("Frame", {Size = UDim2.new(1, 0, 0, closedHeight), BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true, LayoutOrder = #controls + 1}, parent)
+            dropdownFrame:SetAttribute("BlockWindowDrag", true)
             caption(dropdownFrame, {Size = UDim2.new(1, 0, 0, 14), Position = UDim2.fromOffset(0, 6), Text = data and data.Title or id, TextSize = 9}, dimColor)
             local selector, selectorLabel = CreateClickButton(dropdownFrame, "Select...", UDim2.new(1, -(horizontalInset * 2), 0, selectorHeight), UDim2.fromOffset(horizontalInset, selectorY), COLOR_CONTROL, COLOR_TEXT, Enum.Font.GothamMedium, 10)
             selector.BackgroundTransparency = 0.3
@@ -5398,6 +5425,7 @@ function NexusUI:CreateWindow(options)
             local parent = getControlParent()
             divider(parent, "button")
             local buttonFrame = new("Frame", {Size = UDim2.new(1, 0, 0, hasDesc and 52 or 38), BackgroundTransparency = 1, LayoutOrder = #controls + 1, BorderSizePixel = 0, Active = true}, parent)
+            buttonFrame:SetAttribute("BlockWindowDrag", true)
             local panel = bind(new("Frame", {Name = "Panel", Size = UDim2.new(1, -2, 1, -8), Position = UDim2.fromOffset(1, 4), BackgroundTransparency = 0.945, BorderSizePixel = 0}, buttonFrame), "BackgroundColor3", textColor)
             corner(panel, 7)
             local bStroke = stroke(panel, 0.91)
