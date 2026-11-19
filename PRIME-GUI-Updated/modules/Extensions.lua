@@ -2196,4 +2196,72 @@ do
     end)
 end
 
+do
+    local state = {Enabled = false, Distance = 40}
+    local alive, generation = true, 0
+    local network, zones, connection, patch
+    NexusUI.State.ExtendedBlockRange = state
+    local function restore()
+        if patch and patch.Values.BlockingRangeBoost == patch.Applied then patch.Values.BlockingRangeBoost = patch.Original end
+        patch = nil
+    end
+    local function apply()
+        if not alive or ScriptUnloaded or not state.Enabled then restore(); return end
+        local values = network and network.CharValues
+        if type(values) ~= "table" then restore(); return end
+        if patch and patch.Values ~= values then restore() end
+        if not patch then patch = {Values = values, Original = values.BlockingRangeBoost} end
+        if values.BlockingRangeBoost ~= patch.Applied then patch.Original = values.BlockingRangeBoost end
+        local base = 1
+        local zone = LocalPlayer:FindFirstChild("Zone")
+        if values.InZone and zone and zones and zones.BlockDistBuffZones then base += tonumber(zones.BlockDistBuffZones[zone.Value]) or 0 end
+        if type(values.MalevolentVisionMode) == "number" and values.MalevolentVisionMode >= Workspace:GetServerTimeNow() then base += 0.7 end
+        local slight = LocalPlayer:GetAttribute("SlightBuff") and 0.175 or 0
+        local original = type(patch.Original) == "number" and patch.Original > 0 and patch.Original or 1
+        local needed = (state.Distance / 25 - slight) / math.max(base, 0.01)
+        patch.Applied = math.max(original, needed)
+        values.BlockingRangeBoost = patch.Applied
+    end
+    local function stop()
+        generation += 1
+        if connection then connection:Disconnect(); connection = nil end
+        restore()
+    end
+    local section = Tabs.Main:AddSection("Block Range", "Right")
+    section.Frame.LayoutOrder = -1000
+    Tabs.Main:AddToggle("ExtendedBlockRange", {Title = "Extended Block Range [Client]", Description = "Increases how far away you can attempt a block.", Default = false, Callback = function(value)
+        stop()
+        state.Enabled = value == true
+        if not state.Enabled then return end
+        local token = generation
+        task.spawn(function()
+            local ok, result, tableZones = pcall(function()
+                local knit = require(ReplicatedStorage.Packages.Knit)
+                return knit.GetController("Network"), require(ReplicatedStorage.Shared.Tables.Zones)
+            end)
+            if not alive or ScriptUnloaded or not state.Enabled or token ~= generation then return end
+            if not ok or not result then
+                state.Enabled = false
+                local option = NexusUI.Options.ExtendedBlockRange
+                if option then option:SetValue(false) end
+                pcall(NexusUI.Notify, NexusUI, {Title = "Block Range", Content = "Game data is not ready. Try again after joining.", Duration = 4})
+                return
+            end
+            network, zones = result, tableZones
+            apply()
+            connection = RunService.PreSimulation:Connect(apply)
+        end)
+    end})
+    Tabs.Main:AddSlider("ExtendedBlockDistance", {Title = "Block Distance", Description = "Sets the distance at which you can attempt a block.", Default = 40, Min = 25, Max = 100, Step = 1, Rounding = 0, Callback = function(value)
+        state.Distance = math.clamp(tonumber(value) or 40, 25, 100)
+        if state.Enabled then apply() end
+    end})
+    local removing = LocalPlayer.CharacterRemoving:Connect(restore)
+    RegisterUnloadCallback(function()
+        alive, state.Enabled = false, false
+        stop(); removing:Disconnect()
+        if NexusUI.State.ExtendedBlockRange == state then NexusUI.State.ExtendedBlockRange = nil end
+    end)
+end
+
 end}
