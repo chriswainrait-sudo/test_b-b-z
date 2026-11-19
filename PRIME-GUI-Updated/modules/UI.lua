@@ -4965,10 +4965,10 @@ function NexusUI:CreateWindow(options)
             local parent = getControlParent()
             local accent = accents[parent] or accentColor
             divider(parent, "toggle")
-            local rowHeight = IS_MOBILE and 34 or 30
+            local rowHeight = IS_MOBILE and 44 or 32
             local showDescription = data and data.ShowDescription == true
-            local SWITCH_W, SWITCH_H = IS_MOBILE and 38 or 30, IS_MOBILE and 20 or 16
-            local KNOB = SWITCH_H - 7
+            local SWITCH_W = IS_MOBILE and 22 or 18
+            local SWITCH_H = SWITCH_W
             local toggleFrame = new("Frame", {Size = UDim2.new(1, 0, 0, rowHeight), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Active = true, LayoutOrder = #controls + 1, BorderSizePixel = 0}, parent)
             toggleFrame:SetAttribute("BlockWindowDrag", true)
             local label = caption(toggleFrame, {Size = UDim2.new(1, -(SWITCH_W + 12), 0, showDescription and 27 or 0), AutomaticSize = showDescription and Enum.AutomaticSize.None or Enum.AutomaticSize.Y, Text = data and data.Title or id, TextSize = TS, TextWrapped = not showDescription, TextTruncate = showDescription and Enum.TextTruncate.AtEnd or Enum.TextTruncate.None})
@@ -4982,12 +4982,16 @@ function NexusUI:CreateWindow(options)
                 new("UIPadding", {PaddingTop = UDim.new(0, math.floor((rowHeight - TS) / 2)), PaddingBottom = UDim.new(0, math.ceil((rowHeight - TS) / 2))}, label)
             end
             local lockedBanner = caption(toggleFrame, {Name = "LockedBanner", Size = UDim2.fromScale(1, 1), Text = data and data.LockedText or "", TextSize = 10, TextXAlignment = Enum.TextXAlignment.Center, TextTruncate = Enum.TextTruncate.AtEnd, Visible = false, ZIndex = 3}, dimColor)
-            local switch = new("Frame", {Name = "Switch", AnchorPoint = Vector2.new(1, 0.5), Size = UDim2.fromOffset(SWITCH_W, SWITCH_H), Position = UDim2.new(1, 0, 0.5, 0), BorderSizePixel = 0}, toggleFrame)
-            corner(switch, 99)
-            local switchStroke = stroke(switch, 0.86)
-            local glow = icon("glow", SWITCH_W + 18, SWITCH_H + 18, accent, switch)
-            local knob = new("Frame", {Name = "Knob", AnchorPoint = Vector2.new(0, 0.5), Size = UDim2.fromOffset(KNOB, KNOB), BorderSizePixel = 0, ZIndex = 3}, switch)
-            corner(knob, 99)
+            local switch = new("Frame", {Name = "Checkbox", AnchorPoint = Vector2.new(1, 0.5), Size = UDim2.fromOffset(SWITCH_W, SWITCH_H), Position = UDim2.new(1, -1, 0, rowHeight * 0.5), BackgroundTransparency = 1, BorderSizePixel = 0, Active = false}, toggleFrame)
+            corner(switch, IS_MOBILE and 5 or 4)
+            local switchStroke = stroke(switch, 0.55)
+            local checkmark = new("Frame", {Name = "Checkmark", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Active = false, ZIndex = 3}, switch)
+            local checkScale = new("UIScale", {Scale = 0.8}, checkmark)
+            checkmark.AnchorPoint, checkmark.Position = Vector2.new(0.5, 0.5), UDim2.fromScale(0.5, 0.5)
+            local checkShort = new("Frame", {Name = "CheckShort", AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromScale(0.28, 0.12), Position = UDim2.fromScale(0.32, 0.54), Rotation = 45, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 3}, checkmark)
+            local checkLong = new("Frame", {Name = "CheckLong", AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromScale(0.48, 0.12), Position = UDim2.fromScale(0.58, 0.46), Rotation = -45, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 3}, checkmark)
+            corner(checkShort, 99)
+            corner(checkLong, 99)
 
             local enabled = data and data.Default == true or false
             local locked = false
@@ -5013,10 +5017,12 @@ function NexusUI:CreateWindow(options)
 
             local function refresh(animated)
                 local on = enabled and not locked
-                setSwitch(switch, {BackgroundColor3 = on and accent() or COLOR_TEXT, BackgroundTransparency = on and 0 or locked and 0.97 or 0.94}, animated)
-                setSwitch(knob, {Position = on and UDim2.new(1, -(KNOB + 3.5), 0.5, 0) or UDim2.new(0, 3.5, 0.5, 0), BackgroundColor3 = on and COLOR_ON_ACCENT or COLOR_TEXT_DIM:Lerp(COLOR_WINDOW, 0.15), BackgroundTransparency = locked and 0.55 or 0}, animated)
-                setSwitch(glow, {ImageTransparency = on and 0.5 or 1}, animated)
-                switchStroke.Transparency = on and 1 or 0.86
+                setSwitch(switch, {BackgroundColor3 = on and accent() or COLOR_CONTROL, BackgroundTransparency = on and 0.04 or 1}, animated)
+                setSwitch(checkScale, {Scale = on and 1 or 0.8}, animated)
+                for _, segment in ipairs({checkShort, checkLong}) do
+                    setSwitch(segment, {BackgroundColor3 = COLOR_ON_ACCENT, BackgroundTransparency = on and 0 or 1}, animated)
+                end
+                setSwitch(switchStroke, {Color = on and accent() or COLOR_TEXT_DIM, Transparency = on and 0.12 or locked and 0.85 or 0.55}, animated)
                 bind(label, "TextColor3", locked and dimColor or textColor)
                 lockedBanner.Visible = locked and lockedBanner.Text ~= ""
                 label.Visible = not lockedBanner.Visible
