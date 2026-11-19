@@ -4904,6 +4904,61 @@ function NexusUI:CreateWindow(options)
         return toggleKey
     end
 
+    local gameFeatureIcons = {
+        Shoot = "rbxassetid://101600358894529", Dribble = "rbxassetid://102627280154234",
+        Steal = "rbxassetid://111950482338586", Defense = "rbxassetid://135884058234772",
+        Dunk = "rbxassetid://106457452485789", Offense = "rbxassetid://118640277635088",
+        Zone = "rbxassetid://87698307649820", Awakening = "rbxassetid://120180725868612",
+        SoulCatch = "rbxassetid://85295427525389", Style = "rbxassetid://111333169806568",
+        Inventory = "rbxassetid://95572898764607",
+    }
+    local gameFeatureIconKeys = {
+        StealSupport = "Steal", SmartAutoSteal = "Steal", SmartStealRange = "Steal", StealDanger = "Steal",
+        ThiefUnrestrictedPillage = "Steal", CopycatCopyTarget = "Steal", CopycatCopySlot = "Steal",
+        AutoDribble = "Dribble", InfiniteDribble = "Dribble", InfinitePumpFakes = "Shoot",
+        PerfectShot = "Shoot", SilentAimShot = "Shoot", SilentAimRange = "Shoot", ShotTrajectory = "Shoot",
+        QuickRelease = "Shoot", ShotArcControl = "Shoot", ShotArcHeight = "Shoot",
+        AutoBlock = "Defense", AutoBlockDunk = "Defense", GeniusAutoPerfectLockdown = "Defense",
+        TatlisV2AutoSoulCatch = "SoulCatch", AutoDunk = "Dunk", ShotPower = "Shoot", ShotPowerMultiplier = "Shoot",
+        AutoPass = "Offense", NewPassSpeedEnabled = "Offense", NewPassSpeed = "Offense", NewPassTarget = "Offense",
+        SpecialPassTarget = "Offense", SwitcherSwitchTarget = "Offense", NoAbilityCooldown = "Awakening",
+        CS_StyleESP = "Style", CS_ZoneESP = "Zone", CS_InventoryHUD = "Inventory", CS_NoStealCD = "Steal",
+        CS_DribbleBoost = "Dribble", CS_DribbleMultiplier = "Dribble", CS_BlockRange = "Defense", CS_BlockMultiplier = "Defense",
+        CS_ExtendedDunk = "Dunk", CS_DunkMultiplier = "Dunk", CS_QuickRelease = "Shoot", CS_ExtraPumpFakes = "Shoot",
+        CS_PumpCount = "Shoot", CS_ExtendedChain = "Dribble", CS_ChainCount = "Dribble", CS_PassBoost = "Offense",
+        CS_PassMultiplier = "Offense", CS_Trajectory = "Shoot", CS_Horizon = "Shoot", PumpFakeAnimation = "Shoot",
+    }
+    local function featureArtwork(id, title)
+        local name = string.lower(tostring(title or ""))
+        for _, item in ipairs({{"jackpot", "86789671380900"}, {"dealer", "138773545432497"}, {"perfection v2", "104531533399708"}, {"perfection", "85187975725331"}}) do
+            if name:find(item[1], 1, true) then return "rbxassetid://" .. item[2], true end
+        end
+        local key = gameFeatureIconKeys[id]
+        if not key and name:find("sniper", 1, true) then key = "Shoot" end
+        return key and gameFeatureIcons[key] or nil, false
+    end
+    local function decorateFeature(frame, id, data, kind)
+        local image, card = featureArtwork(id, data.Title)
+        if not image or not frame or not frame:IsA("GuiObject") or frame:GetAttribute("FeatureArtwork") then return end
+        local label
+        for _, child in ipairs(frame:GetChildren()) do
+            if child:IsA("TextLabel") and string.lower(child.Text) == string.lower(tostring(data.Title or id)) then label = child; break end
+        end
+        if not label then return end
+        frame:SetAttribute("FeatureArtwork", true)
+        local size = kind == "AddToggle" and (IS_MOBILE and 22 or 18) or 14
+        local gap = size + 7
+        local position = label.Position
+        local top = kind == "AddDropdown" and UDim2.new(position.X.Scale, position.X.Offset, 0, position.Y.Offset + 7)
+            or UDim2.new(position.X.Scale, position.X.Offset, 0, (IS_MOBILE and 44 or 32) * 0.5)
+        if kind == "AddSlider" or kind == "AddButton" then top = UDim2.new(position.X.Scale, position.X.Offset, 0.5, 0) end
+        local artwork = new("ImageLabel", {Name = "GameFeatureIcon", Image = image, Size = UDim2.fromOffset(size, size), AnchorPoint = Vector2.new(0, 0.5), Position = top, BackgroundTransparency = 1, BorderSizePixel = 0, ScaleType = card and Enum.ScaleType.Crop or Enum.ScaleType.Fit, ImageTransparency = 0.04, Active = false, ZIndex = 3}, frame)
+        if card then corner(artwork, 4) end
+        label.Size = UDim2.new(label.Size.X.Scale, label.Size.X.Offset - gap, label.Size.Y.Scale, label.Size.Y.Offset)
+        label.Position = UDim2.new(position.X.Scale, position.X.Offset + gap, position.Y.Scale, position.Y.Offset)
+    end
+
+
     function window:AddTab(tabData)
         local tabButton = new("TextButton", {BackgroundTransparency = 1, Text = string.upper(tostring(tabData and tabData.Title or "Tab")), AutoButtonColor = false, LayoutOrder = #tabs + 1, ZIndex = 4})
         tabButton:SetAttribute("KeepFont", true)
@@ -5214,12 +5269,13 @@ function NexusUI:CreateWindow(options)
             local function layout()
                 local scale = math.max(targetScale, 0.1)
                 local box = math.max(34, math.ceil(valueLabel.TextBounds.X / scale) + 12)
-                local x = inset + math.ceil(label.TextBounds.X / scale) + 12
+                local x = label.Position.X.Offset + math.ceil(label.TextBounds.X / scale) + 12
                 valueBox.Size = UDim2.fromOffset(box, 17)
                 track.Position, track.Size = UDim2.new(0, x, 0.5, 0), UDim2.new(1, -(x + box + 11), 0, 4)
             end
             layout()
             TrackGuiConnection(label:GetPropertyChangedSignal("TextBounds"):Connect(layout))
+            TrackGuiConnection(label:GetPropertyChangedSignal("Position"):Connect(layout))
             TrackGuiConnection(valueLabel:GetPropertyChangedSignal("TextBounds"):Connect(layout))
 
             local value = data and data.Default or 0
@@ -5698,6 +5754,7 @@ function NexusUI:CreateWindow(options)
                 local parent = getControlParent()
                 local result
                 if kind == "AddButton" then result = original(self, clean) else result = original(self, id, clean) end
+                decorateFeature(controls[#controls], id, data, kind)
                 local setDescription = addFeatureDetails(parent, descriptionFor(kind, id, data), data.DescriptionColor, id == "PerfectShot")
                 local option = id and NexusUI.Options[id]
                 if kind == "AddToggle" and option then option.SetDescription = function(_, value) setDescription(value) end end
