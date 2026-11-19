@@ -4212,7 +4212,14 @@ function NexusUI:CreateWindow(options)
 
     local mobileRestoreFrame, mobileFoldTween
     local savedCompactPosition
-    local compactSize = UDim2.fromOffset(64, 34)
+    local compactSize = IS_MOBILE and UDim2.fromOffset(64, 34) or UDim2.fromOffset(300, 46)
+    local compactStats = {}
+    local compactValues = {FPS = "--", PING = "--", TIME = "--:--:--"}
+    local function updateCompactStats()
+        for key, label in pairs(compactStats) do
+            if label.Parent then label.Text = compactValues[key] end
+        end
+    end
 
     local function compactPosition(position)
         local bounds = restoreGui.AbsoluteSize
@@ -4266,7 +4273,9 @@ function NexusUI:CreateWindow(options)
             restoreFrame.BackgroundTransparency = mainFrame.BackgroundTransparency
             restoreFrame.ClipsDescendants = true
             windowGradient().Parent = restoreFrame
-            mainCorner:Clone().Parent = restoreFrame
+            local compactCorner = mainCorner:Clone()
+            if not IS_MOBILE then compactCorner.CornerRadius = UDim.new(0, 7) end
+            compactCorner.Parent = restoreFrame
             do
                 local stroke = mainStroke:Clone()
                 local gradient = stroke:FindFirstChildOfClass("UIGradient")
@@ -4274,8 +4283,13 @@ function NexusUI:CreateWindow(options)
                 borderGradient().Parent = stroke
                 stroke.Parent = restoreFrame
             end
-            createImageBackground(restoreFrame)
+            local artwork = createImageBackground(restoreFrame)
+            if not IS_MOBILE then
+                local artworkCorner = artwork:FindFirstChildOfClass("UICorner")
+                if artworkCorner then artworkCorner.CornerRadius = UDim.new(0, 7) end
+            end
 
+            if IS_MOBILE then
             local logo = makeLogo(restoreFrame, 24)
             logo.Name = "CompactSpinningLogo"
             logo.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -4289,6 +4303,21 @@ function NexusUI:CreateWindow(options)
                 if restoreGui.Enabled then spin:Play() else spin:Pause() end
             end))
             track(restoreFrame.Destroying:Connect(function() spin:Cancel() end))
+            else
+                local info = new("Frame", {Name = "DesktopCompactStats", Size = UDim2.new(1, -24, 1, 0), Position = UDim2.fromOffset(12, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 3}, restoreFrame)
+                for i, key in ipairs({"FPS", "PING", "TIME"}) do
+                    local cell = new("Frame", {Name = key, Size = UDim2.new(1 / 3, 0, 1, 0), Position = UDim2.new((i - 1) / 3, 0, 0, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 3}, info)
+                    local title = new("TextLabel", {Size = UDim2.new(1, -8, 0, 12), Position = UDim2.fromOffset(0, 6), BackgroundTransparency = 1, Text = key == "TIME" and "LOCAL TIME" or key, Font = Enum.Font.GothamMedium, TextSize = 8, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 4}, cell)
+                    bind(title, "TextColor3", dimColor)
+                    local value = new("TextLabel", {Name = "Value", Size = UDim2.new(1, -8, 0, 20), Position = UDim2.fromOffset(0, 19), BackgroundTransparency = 1, Text = compactValues[key], Font = Enum.Font.GothamMedium, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 4}, cell)
+                    bind(value, "TextColor3", textColor)
+                    compactStats[key] = value
+                    if i < 3 then
+                        bind(new("Frame", {AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -7, 0.5, 0), Size = UDim2.fromOffset(1, 22), BackgroundTransparency = 0.85, BorderSizePixel = 0, ZIndex = 3}, cell), "BackgroundColor3", textColor)
+                    end
+                end
+                updateCompactStats()
+            end
 
             restoreButton = Instance.new("TextButton")
             restoreButton.Name = "ExpandWindow"
@@ -4376,6 +4405,12 @@ function NexusUI:CreateWindow(options)
         track(restoreButton.InputBegan:Connect(beginRestoreInteraction))
         track(userInputService.InputChanged:Connect(updateRestoreInteraction))
         track(userInputService.InputEnded:Connect(endRestoreInteraction))
+        track(restoreGui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+            if useCompactRestore and not mobileFoldTween then
+                restoreFrame.Position = compactPosition(savedCompactPosition or restoreFrame.Position)
+                savedCompactPosition = restoreFrame.Position
+            end
+        end))
 
         return restoreGui
     end
@@ -4722,6 +4757,12 @@ function NexusUI:CreateWindow(options)
         pcall(function() ping = math.floor(LocalPlayer:GetNetworkPing() * 1000 + 0.5) end)
         setFps(tostring(fps), ACCENT)
         setPing(ping .. " MS", ACCENT)
+        compactValues.FPS, compactValues.PING = tostring(fps), ping .. " ms"
+        if not IS_MOBILE then
+            local ok, localTime = pcall(function() return DateTime.now():FormatLocalTime("HH:mm:ss", "en-us") end)
+            if ok then compactValues.TIME = localTime end
+            updateCompactStats()
+        end
         frames, sampleTime = 0, 0
     end))
 
@@ -4986,12 +5027,34 @@ function NexusUI:CreateWindow(options)
             corner(switch, IS_MOBILE and 5 or 4)
             local switchStroke = stroke(switch, 0.55)
             local checkmark = new("Frame", {Name = "Checkmark", Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Active = false, ZIndex = 3}, switch)
-            local checkScale = new("UIScale", {Scale = 0.8}, checkmark)
+            local checkScale = new("UIScale", {Scale = 1}, checkmark)
             checkmark.AnchorPoint, checkmark.Position = Vector2.new(0.5, 0.5), UDim2.fromScale(0.5, 0.5)
-            local checkShort = new("Frame", {Name = "CheckShort", AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromScale(0.28, 0.12), Position = UDim2.fromScale(0.32, 0.54), Rotation = 45, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 3}, checkmark)
-            local checkLong = new("Frame", {Name = "CheckLong", AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromScale(0.48, 0.12), Position = UDim2.fromScale(0.58, 0.46), Rotation = -45, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 3}, checkmark)
-            corner(checkShort, 99)
-            corner(checkLong, 99)
+            local function checkSegment(name, x, y, length, rotation, color, layer)
+                local segment = new("Frame", {Name = name, AnchorPoint = Vector2.new(0, 0.5), Size = UDim2.fromScale(length, 0.12), Position = UDim2.fromScale(x, y), Rotation = rotation, BackgroundColor3 = color, BorderSizePixel = 0, Active = false, ZIndex = layer}, checkmark)
+                corner(segment, 99)
+                return segment
+            end
+            local gray = Color3.fromRGB(120, 124, 132)
+            local green = Color3.fromRGB(30, 170, 88)
+            checkSegment("GrayCheckShort", 0.22, 0.44, 0.28, 45, gray, 3)
+            checkSegment("GrayCheckLong", 0.41, 0.63, 0.48, -45, gray, 3)
+            local checkShort = checkSegment("CheckShort", 0.22, 0.44, 0, 45, green, 4)
+            local checkLong = checkSegment("CheckLong", 0.41, 0.63, 0, -45, green, 4)
+            local checkProgress = new("NumberValue", {Name = "CheckProgress", Value = 0}, checkmark)
+            local function drawCheck()
+                local progress = math.clamp(checkProgress.Value, 0, 1)
+                local first = math.clamp(progress / 0.36, 0, 1)
+                local second = math.clamp((progress - 0.36) / 0.64, 0, 1)
+                checkShort.Size = UDim2.fromScale(0.28 * first, 0.12)
+                checkLong.Size = UDim2.fromScale(0.48 * second, 0.12)
+                checkShort.BackgroundTransparency = first > 0 and 0 or 1
+                checkLong.BackgroundTransparency = second > 0 and 0 or 1
+                local pulse = math.sin(progress * math.pi)
+                checkScale.Scale = 1 - pulse * 0.08
+                checkmark.Rotation = -pulse * 7
+            end
+            TrackGuiConnection(checkProgress:GetPropertyChangedSignal("Value"):Connect(drawCheck))
+            drawCheck()
 
             local enabled = data and data.Default == true or false
             local locked = false
@@ -5005,10 +5068,10 @@ function NexusUI:CreateWindow(options)
             }
 
             local switchTweens = {}
-            local function setSwitch(object, props, animated)
+            local function setSwitch(object, props, animated, duration, easing)
                 if switchTweens[object] then switchTweens[object]:Cancel() end
                 if animated then
-                    switchTweens[object] = TweenService:Create(object, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props)
+                    switchTweens[object] = TweenService:Create(object, TweenInfo.new(duration or 0.18, easing or Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props)
                     switchTweens[object]:Play()
                 else
                     for key, value in pairs(props) do object[key] = value end
@@ -5017,18 +5080,19 @@ function NexusUI:CreateWindow(options)
 
             local function refresh(animated)
                 local on = enabled and not locked
-                setSwitch(switch, {BackgroundColor3 = on and accent() or COLOR_CONTROL, BackgroundTransparency = on and 0.04 or 1}, animated)
-                setSwitch(checkScale, {Scale = on and 1 or 0.8}, animated)
-                for _, segment in ipairs({checkShort, checkLong}) do
-                    setSwitch(segment, {BackgroundColor3 = COLOR_ON_ACCENT, BackgroundTransparency = on and 0 or 1}, animated)
-                end
-                setSwitch(switchStroke, {Color = on and accent() or COLOR_TEXT_DIM, Transparency = on and 0.12 or locked and 0.85 or 0.55}, animated)
+                setSwitch(switch, {BackgroundColor3 = on and WHITE or Color3.fromRGB(45, 47, 52), BackgroundTransparency = 0}, animated)
+                setSwitch(checkProgress, {Value = on and 1 or 0}, animated, on and 0.3 or 0.24, Enum.EasingStyle.Sine)
+                if not animated then drawCheck() end
+                setSwitch(switchStroke, {Color = on and WHITE or Color3.fromRGB(88, 92, 100), Transparency = on and 0.15 or locked and 0.85 or 0.45}, animated)
                 bind(label, "TextColor3", locked and dimColor or textColor)
                 lockedBanner.Visible = locked and lockedBanner.Text ~= ""
                 label.Visible = not lockedBanner.Visible
                 switch.Visible = not lockedBanner.Visible
             end
             refresh(false)
+            TrackGuiConnection(toggleFrame.Destroying:Connect(function()
+                for _, tween in pairs(switchTweens) do tween:Cancel() end
+            end))
             table.insert(NexusUI.ThemeRefresh, function() if toggleFrame.Parent then refresh(false) end end)
 
             function toggleOption:SetValue(value)
