@@ -1855,6 +1855,40 @@ end
         local alpha = math.clamp((distance - a.Distance) / math.max(b.Distance - a.Distance, 0.0001), 0, 1)
         return a.Position + (b.Position - a.Position) * alpha, index
     end
+    local function reconcilePerfectBall(flight)
+        if flight.Mode ~= "Perfect" then return true end
+        local now = os.clock()
+        local current = GetCurrentBall()
+        local controller = controllers.BallController
+        local character, _, humanoid = localParts()
+        if not alive or ScriptUnloaded or not config.PerfectShot or not playing() or not humanoid or humanoid.Health <= 0
+            or character ~= flight.Character or LocalPlayer.Team ~= flight.Team or targetHoop() ~= flight.Hoop
+            or not flight.Hoop.Parent or now > flight.Deadline then return false end
+        local ok, holder = pcall(controller.GetPlayerPossessingBall, controller)
+        if not ok or holder and holder ~= LocalPlayer then return false end
+        if current == flight.Ball and current.Parent and not current.Anchored and ballOwned(current) then
+            flight.Recovering = nil
+            flight.LastPosition, flight.LastVelocity, flight.LastSeen = current.Position, current.AssemblyLinearVelocity, now
+            return true
+        end
+        flight.Recovering = flight.Recovering or now
+        if now - flight.Recovering > 0.35 then return false end
+        if not current or not current.Parent or current.Anchored then return nil end
+        if current ~= flight.Ball then
+            local known, previous = pcall(controller.GetLastCharacterToPossessBall, controller)
+            if not known or previous ~= flight.Character or holder then return false end
+            local elapsed = math.clamp(now - (flight.LastSeen or flight.Started), 0, 0.35)
+            local previousPosition = flight.LastPosition or flight.Ball.Position
+            local expected = previousPosition + (flight.LastVelocity or Vector3.zero) * elapsed
+                - Vector3.new(0, Workspace.Gravity * elapsed * elapsed * 0.5, 0)
+            if (current.Position - expected).Magnitude > math.clamp(flight.Speed * 0.08, 4, 14) then return false end
+            if not ballOwned(current) then return nil end
+            flight.Ball, flight.Lock.ball = current, current
+        elseif not ballOwned(current) then return nil end
+        flight.Recovering = nil
+        flight.LastPosition, flight.LastVelocity, flight.LastSeen = current.Position, current.AssemblyLinearVelocity, now
+        return true
+    end
     local function ballFlightValid(flight)
         local character, _, humanoid = localParts()
         local enabled = flight.Mode == "Perfect" and config.PerfectShot or flight.Mode == "Manual" and config.BallManipulation
@@ -1884,6 +1918,7 @@ end
         local baseSpeed = mode == "Perfect" and velocity.Magnitude or math.clamp(velocity.Magnitude, 40, 250)
         local flight = {Ball = ball, Character = request.char, Team = LocalPlayer.Team, Mode = mode,
             Direction = look, Started = os.clock(), BaseSpeed = baseSpeed,
+            LastPosition = ball.Position, LastVelocity = velocity, LastSeen = os.clock(),
             Speed = mode == "Manual" and config.SlowBall and 10 or baseSpeed}
         if mode == "Perfect" then
             flight.Hoop = request.hoop
@@ -1951,6 +1986,9 @@ end
         if bmPending and os.clock() > bmPending.expires then bmPending = nil end
         local flight = bmFlight
         if not flight then return end
+        local reconciled = reconcilePerfectBall(flight)
+        if reconciled == false then stopBallFlight(); return end
+        if reconciled == nil then return end
         if not ballFlightValid(flight) then stopBallFlight(); return end
         if not flight.Released then return end
         dt = math.clamp(dt or 1 / 60, 1 / 240, 1 / 15)
