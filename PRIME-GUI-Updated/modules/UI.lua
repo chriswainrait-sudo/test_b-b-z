@@ -4051,9 +4051,9 @@ function NexusUI:CreateWindow(options)
     do
         local dock = new("Frame", {Name = "PlayerAccountDock", Position = UDim2.fromOffset(16, topBarHeight), Size = UDim2.new(1, -32, 0, 42), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 5}, innerClip)
         new("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center, Padding = UDim.new(0, 9), SortOrder = Enum.SortOrder.LayoutOrder}, dock)
-        local badge = bind(new("Frame", {Name = "AccountBadge", Size = UDim2.fromOffset(28, 28), BorderSizePixel = 0, LayoutOrder = 1, ZIndex = 6}, dock), "BackgroundColor3", function() return COLOR_CONTROL end)
+        local badge = bind(new("Frame", {Name = "AccountBadge", Size = UDim2.fromOffset(28, 28), BackgroundTransparency = 1, BorderSizePixel = 0, LayoutOrder = 1, ZIndex = 6}, dock), "BackgroundColor3", function() return COLOR_CONTROL end)
         corner(badge, 99)
-        stroke(badge, 0.82)
+
         local avatar = new("ViewportFrame", {Name = "PlayerHeadshot", BackgroundTransparency = 1, BorderSizePixel = 0, Size = UDim2.fromScale(1, 1), Ambient = Color3.fromRGB(220, 220, 220), LightColor = WHITE, LightDirection = Vector3.new(-1, -1, -2), ZIndex = 7}, badge)
         corner(avatar, 99)
         local portraitWorld = new("WorldModel", {}, avatar)
@@ -4125,9 +4125,9 @@ function NexusUI:CreateWindow(options)
 
         caption(dock, {Name = "PlayerUsername", Size = UDim2.fromOffset(0, 20), AutomaticSize = Enum.AutomaticSize.X, Text = "@" .. LocalPlayer.Name, TextSize = TS, LayoutOrder = 2, ZIndex = 7})
         local tierColor = IS_PREMIUM_USER and function() return Color3.fromRGB(255, 214, 110) end or accentColor
-        local pill = bind(new("Frame", {Name = "TierPill", Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, BackgroundTransparency = 0.87, BorderSizePixel = 0, LayoutOrder = 3, ZIndex = 6}, dock), "BackgroundColor3", tierColor)
+        local pill = bind(new("Frame", {Name = "TierPill", Size = UDim2.fromOffset(0, 16), AutomaticSize = Enum.AutomaticSize.X, BackgroundTransparency = 1, BorderSizePixel = 0, LayoutOrder = 3, ZIndex = 6}, dock), "BackgroundColor3", tierColor)
         corner(pill, 5)
-        stroke(pill, 0.7, tierColor)
+
         new("UIPadding", {PaddingLeft = UDim.new(0, 7), PaddingRight = UDim.new(0, 7)}, pill)
         local tier = new("TextLabel", {Name = "PrimeSubtitle", BackgroundTransparency = 1, Size = UDim2.new(0, 0, 1, 0), AutomaticSize = Enum.AutomaticSize.X, Text = IS_PREMIUM_USER and "Premium" or "Freemium", TextColor3 = WHITE, TextSize = 9, ZIndex = 7}, pill)
         local sh = new("UIGradient", {Offset = Vector2.new(-1, 0), Color = IS_PREMIUM_USER and ColorSequence.new({
