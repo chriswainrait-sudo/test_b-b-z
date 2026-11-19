@@ -1954,6 +1954,7 @@ do
         if steal.Connection then steal.Connection:Disconnect() end
         steal = {Seen = setmetatable({}, {__mode = "k"}), Next = 0, Protected = 0, Exhausted = 0, Count = 0}
     end
+    local updateSteal
     local function observeDribble(track, existing)
         if steal.Seen[track] ~= nil then return end
         local id = track.Animation and track.Animation.AnimationId:match("%d+")
@@ -1988,6 +1989,11 @@ do
             steal.Connection = animator.AnimationPlayed:Connect(function(track)
                 steal.Seen[track] = nil
                 observeDribble(track, false)
+                task.defer(function()
+                    if alive and not ScriptUnloaded and config.SmartSteal and steal.Owner == owner and steal.Character == character then
+                        updateSteal(os.clock(), true)
+                    end
+                end)
             end)
         end
     end
@@ -1998,8 +2004,8 @@ do
         local scoring = values and values:FindFirstChild("Scoring")
         return state and state.Value == "Playing" and not (tip and tip.Value) and not (scoring and scoring.Value)
     end
-    local function updateSteal(now)
-        if not config.SmartSteal or not context or now - lastSteal < 0.04 then return end
+    updateSteal = function(now, immediate)
+        if not config.SmartSteal or not context or not immediate and now - lastSteal < 1 / 120 then return end
         lastSteal = now
         if not canPlay() or userInputService:GetFocusedTextBox() then resetSteal(); return end
         local ball, movement = context.Ball, context.Movement.States
@@ -2014,7 +2020,7 @@ do
                 if track.IsPlaying then observeDribble(track, true) end
             end
         end
-        if now < steal.Next or now - steal.Entered < 0.18 or now < steal.Protected then return end
+        if now < steal.Next or now - steal.Entered < 0.05 or now < steal.Protected then return end
         if movement.Stunned or movement.Stealing or movement.Ability or movement.NoWalk
             or context.Network.CharValues.HasBall or humanoid.Sit or humanoid.FloorMaterial == Enum.Material.Air
             or (own:FindFirstChild("IsRagdoll") and own.IsRagdoll.Value) or ball:NoAction()
@@ -2098,7 +2104,7 @@ do
         local active = config.SmartSteal or config.Genius or config.SoulCatch or wantsHooks()
         if config.SmartSteal or wantsHooks() then loadContext() end
         if active and not heartbeat then
-            heartbeat = RunService.Heartbeat:Connect(function()
+            heartbeat = RunService.PreSimulation:Connect(function()
                 if not alive or ScriptUnloaded then return end
                 local now = os.clock()
                 if now - lastTargets >= 1 then lastTargets = now; refreshTargets() end
@@ -2159,6 +2165,16 @@ do
     end
     local newSection = Tabs.Main:AddSection("New", "Left")
     newSection.Frame.LayoutOrder = -1000
+    for _, entry in ipairs({
+        {"AutoBlockNoAnimation", "NoAnimation", "AutoBlock - No Animation", "Automatically blocks nearby shots without showing your block animation."},
+        {"AutoBlockNoJump", "NoJump", "[Experimental] AutoBlock - No Jump", "Attempts to block nearby shots without jumping."},
+    }) do
+        local mode = entry[2]
+        Tabs.Main:AddToggle(entry[1], {Title = entry[3], Description = entry[4], Default = false, Callback = function(value)
+            local setMode = NexusUI.State.SetAutoBlockMode
+            if setMode then setMode(mode, value) end
+        end})
+    end
     toggle(Tabs.Main, "ThiefUnrestrictedPillage", "Pillage", "Thief — Unrestricted Pillage [Client]", "Removes client style and rarity restrictions when acquiring an opponent's used ability")
     toggle(Tabs.Main, "SmartAutoSteal", "SmartSteal", "Better Auto Steal", "Uses the game Steal button when the carrier is in range and ball protection has ended")
     options.StealRange = Tabs.Main:AddSlider("SmartStealRange", {Title = "Steal Range", Default = 14, Min = 5, Max = 17, Rounding = 1,
@@ -2193,74 +2209,6 @@ do
         if render then render:Disconnect() end
         for _, connection in ipairs(connections) do connection:Disconnect() end
         table.clear(circles)
-    end)
-end
-
-do
-    local state = {Enabled = false, Distance = 40}
-    local alive, generation = true, 0
-    local network, zones, connection, patch
-    NexusUI.State.ExtendedBlockRange = state
-    local function restore()
-        if patch and patch.Values.BlockingRangeBoost == patch.Applied then patch.Values.BlockingRangeBoost = patch.Original end
-        patch = nil
-    end
-    local function apply()
-        if not alive or ScriptUnloaded or not state.Enabled then restore(); return end
-        local values = network and network.CharValues
-        if type(values) ~= "table" then restore(); return end
-        if patch and patch.Values ~= values then restore() end
-        if not patch then patch = {Values = values, Original = values.BlockingRangeBoost} end
-        if values.BlockingRangeBoost ~= patch.Applied then patch.Original = values.BlockingRangeBoost end
-        local base = 1
-        local zone = LocalPlayer:FindFirstChild("Zone")
-        if values.InZone and zone and zones and zones.BlockDistBuffZones then base += tonumber(zones.BlockDistBuffZones[zone.Value]) or 0 end
-        if type(values.MalevolentVisionMode) == "number" and values.MalevolentVisionMode >= Workspace:GetServerTimeNow() then base += 0.7 end
-        local slight = LocalPlayer:GetAttribute("SlightBuff") and 0.175 or 0
-        local original = type(patch.Original) == "number" and patch.Original > 0 and patch.Original or 1
-        local needed = (state.Distance / 25 - slight) / math.max(base, 0.01)
-        patch.Applied = math.max(original, needed)
-        values.BlockingRangeBoost = patch.Applied
-    end
-    local function stop()
-        generation += 1
-        if connection then connection:Disconnect(); connection = nil end
-        restore()
-    end
-    local section = Tabs.Main:AddSection("Block Range", "Right")
-    section.Frame.LayoutOrder = -1000
-    Tabs.Main:AddToggle("ExtendedBlockRange", {Title = "Extended Block Range", Description = "Increases how far away you can attempt a block.", Default = false, Callback = function(value)
-        stop()
-        state.Enabled = value == true
-        if not state.Enabled then return end
-        local token = generation
-        task.spawn(function()
-            local ok, result, tableZones = pcall(function()
-                local knit = require(ReplicatedStorage.Packages.Knit)
-                return knit.GetController("Network"), require(ReplicatedStorage.Shared.Tables.Zones)
-            end)
-            if not alive or ScriptUnloaded or not state.Enabled or token ~= generation then return end
-            if not ok or not result then
-                state.Enabled = false
-                local option = NexusUI.Options.ExtendedBlockRange
-                if option then option:SetValue(false) end
-                pcall(NexusUI.Notify, NexusUI, {Title = "Block Range", Content = "Game data is not ready. Try again after joining.", Duration = 4})
-                return
-            end
-            network, zones = result, tableZones
-            apply()
-            connection = RunService.PreSimulation:Connect(apply)
-        end)
-    end})
-    Tabs.Main:AddSlider("ExtendedBlockDistance", {Title = "Block Distance", Description = "Sets the distance at which you can attempt a block.", Default = 40, Min = 25, Max = 100, Step = 1, Rounding = 0, Callback = function(value)
-        state.Distance = math.clamp(tonumber(value) or 40, 25, 100)
-        if state.Enabled then apply() end
-    end})
-    local removing = LocalPlayer.CharacterRemoving:Connect(restore)
-    RegisterUnloadCallback(function()
-        alive, state.Enabled = false, false
-        stop(); removing:Disconnect()
-        if NexusUI.State.ExtendedBlockRange == state then NexusUI.State.ExtendedBlockRange = nil end
     end)
 end
 
