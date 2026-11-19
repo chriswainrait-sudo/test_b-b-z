@@ -881,11 +881,10 @@ Tabs.Main:AddToggle("NoRagdoll", {
 
 
 do
-    local modes = {Base = false, NoAnimation = false, NoJump = false}
+    local modes = {Base = false, NoAnimation = false}
     local watched = {}
+    local faded = setmetatable({}, {__mode = "k"})
     local lastAttempt, quietUntil = -math.huge, 0
-    local service, network, ballController
-    local loading = false
     local shots = {
 
                 "rbxassetid://111975541117141",
@@ -937,25 +936,20 @@ do
     local function stopAnimation(track)
         local animation = track.Animation
         local id = animation and animation.AnimationId:match("%d+")
-        if modes.NoAnimation and os.clock() <= quietUntil and id and blockIds[id] then track:Stop(0.03) end
+        if modes.NoAnimation and os.clock() <= quietUntil and id and blockIds[id] then
+            if faded[track] == nil then faded[track] = track.WeightTarget end
+            if track.WeightTarget ~= 0 then track:AdjustWeight(0, 0.06) end
+        end
     end
     local function clear()
         if AutoBlockConnection then AutoBlockConnection:Disconnect(); AutoBlockConnection = nil end
         for _, connection in pairs(watched) do connection:Disconnect() end
         table.clear(watched)
         quietUntil = 0
-    end
-    local function prepare()
-        if loading or service then return end
-        loading = true
-        task.spawn(function()
-            local ok, s, n, b = pcall(function()
-                local knit = require(ReplicatedStorage.Packages.Knit)
-                return knit.GetService("BallService"), knit.GetController("Network"), knit.GetController("BallController")
-            end)
-            if ok then service, network, ballController = s, n, b end
-            loading = false
-        end)
+        for track, weight in pairs(faded) do
+            pcall(function() if track.IsPlaying then track:AdjustWeight(weight, 0.1) end end)
+        end
+        table.clear(faded)
     end
     local function attempt()
         if not AutoBlockEnabled or ScriptUnloaded or os.clock() - lastAttempt < 0.5 then return end
@@ -968,18 +962,10 @@ do
         local scoring = gameValues and gameValues:FindFirstChild("Scoring")
         local tip = gameValues and gameValues:FindFirstChild("TipOff")
         if scoring and scoring.Value or tip and tip.Value then return end
-        if modes.NoJump then
-            if not service or not network or not ballController then prepare(); return end
-            if network.CharValues.HasBall or ballController:NoAction() then return end
-        elseif humanoid.FloorMaterial == Enum.Material.Air then return end
+        if localPlayerHasBall() or humanoid.FloorMaterial == Enum.Material.Air then return end
         lastAttempt = os.clock()
         quietUntil = lastAttempt + 0.5
-        if modes.NoJump then
-            service.Block:Fire()
-            network.CharValues.Blocked = tick()
-        else
-            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-        end
+        humanoid.Jump = true
         if modes.NoAnimation then
             local animator = humanoid:FindFirstChildOfClass("Animator")
             if animator then for _, track in ipairs(animator:GetPlayingAnimationTracks()) do stopAnimation(track) end end
@@ -997,6 +983,7 @@ do
     end
     local function scan()
         if not AutoBlockEnabled or ScriptUnloaded then return end
+        for track in pairs(faded) do if not track.IsPlaying then faded[track] = nil end end
         local current = {}
         for _, player in ipairs(Players:GetPlayers()) do
             local character = player.Character
@@ -1016,9 +1003,8 @@ do
     end
     local function refresh()
         clear()
-        AutoBlockEnabled = not ScriptUnloaded and (modes.Base or modes.NoAnimation or modes.NoJump)
+        AutoBlockEnabled = not ScriptUnloaded and (modes.Base or modes.NoAnimation)
         if not AutoBlockEnabled then return end
-        if modes.NoJump then prepare() end
         scan()
         AutoBlockConnection = RunService.PreSimulation:Connect(scan)
     end
