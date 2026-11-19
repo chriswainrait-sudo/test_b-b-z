@@ -2229,7 +2229,7 @@ do
     end
     local section = Tabs.Main:AddSection("Block Range", "Right")
     section.Frame.LayoutOrder = -1000
-    Tabs.Main:AddToggle("ExtendedBlockRange", {Title = "Extended Block Range [Client]", Description = "Increases how far away you can attempt a block.", Default = false, Callback = function(value)
+    Tabs.Main:AddToggle("ExtendedBlockRange", {Title = "Extended Block Range", Description = "Increases how far away you can attempt a block.", Default = false, Callback = function(value)
         stop()
         state.Enabled = value == true
         if not state.Enabled then return end
