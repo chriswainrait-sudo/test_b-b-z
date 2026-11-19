@@ -1643,7 +1643,7 @@ end
 
 do
     local alive, context, loading = true, nil, false
-    local config = {SmartSteal = false, StealRange = 14, StealTiming = "Balanced", Genius = false,
+    local config = {SmartSteal = false, StealRange = 14, Pillage = false, Genius = false,
         SoulCatch = false, CopyTarget = "Default", CopySlot = "Random", SpecialTarget = "Default",
         SwitchTarget = "Default"}
     local connections, hooks, targets, options = {}, {}, {}, {}
@@ -1767,7 +1767,7 @@ do
     end
     local function wantsHooks()
         return config.CopyTarget ~= "Default" or config.CopySlot ~= "Random"
-            or config.SpecialTarget ~= "Default" or config.SwitchTarget ~= "Default"
+            or config.SpecialTarget ~= "Default" or config.SwitchTarget ~= "Default" or config.Pillage
     end
     local function installHook(module, handler)
         if not module or not module:IsA("ModuleScript") then return false end
@@ -1817,9 +1817,66 @@ do
         for _, key in ipairs({"Name", "BallName", "RequiresBall", "Steal", "Jump"}) do copy[key] = chosen[key] end
         return true
     end
+    local pillageChange
+    local function clearPillageChange()
+        local change = pillageChange
+        pillageChange = nil
+        if not change or change.Controller.CopiedSetting ~= change.Setting then return end
+        change.Controller.CopiedSetting = nil
+        for _, key in ipairs({"Ability", "Name", "BallName", "AwakeningName", "RequiresBall", "Steal", "Jump"}) do
+            if change.Slot[key] == change.Applied[key] then change.Slot[key] = change.Original[key] end
+        end
+    end
+    local function acquirePillage(controller)
+        local pass = controller.Pass
+        local target = pass and pass.LookingDirect
+        local player = target and Players:GetPlayerFromCharacter(target)
+        local styleValue = player and player:FindFirstChild("Style")
+        if not player or not sameSide(player, "Enemy") or not living(player) or not styleValue then
+            controller:ResetCD(1)
+            return
+        end
+        local style, index = styleValue.Value, styleValue:GetAttribute("AbilityIndex")
+        local moves = context.Moves[style]
+        local chosen = type(index) == "number" and index == math.floor(index) and moves and moves[index]
+        local slot = context.Moves.Thief and context.Moves.Thief[1]
+        if not chosen or not chosen.Ability or not slot or chosen.Ability == moduleAt("Thief.Pillage") then
+            notify("pillage-ability", "Target must have used a valid ability; recursive Pillage cannot be copied")
+            controller:ResetCD(1)
+            return
+        end
+        controller.CachedPillaged = controller.CachedPillaged or {}
+        local cached = controller.CachedPillaged
+        cached[player.Name] = cached[player.Name] or {}
+        cached[player.Name][style] = cached[player.Name][style] or {}
+        if not table.find(cached[player.Name][style], index) then table.insert(cached[player.Name][style], index) end
+        if controller.CopyTrove then controller.CopyTrove:Disconnect(); controller.CopyTrove = nil end
+        local setting = {Style = style, Index = index, Ability = chosen.Ability}
+        local original = table.clone(slot)
+        controller.CDS[1] = tick() + 1
+        controller.CopiedSetting = setting
+        slot.Ability = chosen.Multi and chosen.Ability or moduleAt("Thief.Pillage")
+        for _, key in ipairs({"Name", "BallName", "RequiresBall", "Jump"}) do slot[key] = chosen[key] end
+        slot.AwakeningName, slot.Steal = nil, chosen.Steal or chosen.Seal
+        pillageChange = {Controller = controller, Slot = slot, Setting = setting, Original = original, Applied = table.clone(slot)}
+        controller.AbilityService.Ability:Fire("Pillage", {
+            TimeSent = Workspace:GetServerTimeNow(), Enemy = player, Index = index, Style = style,
+        })
+    end
     updateHooks = function()
         clearHooks()
         if not context or not wantsHooks() or not alive then return end
+        if config.Pillage then
+            installHook(moduleAt("Thief.Pillage"), function(original, controller, ...)
+                local style = LocalPlayer:FindFirstChild("Style")
+                local values = controller.Network and controller.Network.CharValues
+                if not alive or ScriptUnloaded or not config.Pillage or not style or style.Value ~= "Thief"
+                    or controller.CopiedSetting or values and values.InAwakening and not controller.TotalTheft then
+                    return original(controller, ...)
+                end
+                return acquirePillage(controller)
+            end)
+        end
         if config.CopyTarget ~= "Default" or config.CopySlot ~= "Random" then
             installHook(moduleAt("Copycat.Copy"), function(original, controller, ...)
                 if not alive or ScriptUnloaded then return original(controller, ...) end
@@ -1957,8 +2014,7 @@ do
                 if track.IsPlaying then observeDribble(track, true) end
             end
         end
-        if now < steal.Next or now - steal.Entered < 0.18 or now < steal.Protected
-            or config.StealTiming == "Safe windows" and now >= steal.Exhausted then return end
+        if now < steal.Next or now - steal.Entered < 0.18 or now < steal.Protected then return end
         if movement.Stunned or movement.Stealing or movement.Ability or movement.NoWalk
             or context.Network.CharValues.HasBall or humanoid.Sit or humanoid.FloorMaterial == Enum.Material.Air
             or (own:FindFirstChild("IsRagdoll") and own.IsRagdoll.Value) or ball:NoAction()
@@ -2067,10 +2123,12 @@ do
         updateHooks()
     end
     local function toggle(tab, id, key, title, description)
-        options[key] = tab:AddToggle(id, {Title = title, Description = description, Default = false, Callback = function(value)
+        tab:AddToggle(id, {Title = title, Description = description, Default = false, Callback = function(value)
             config[key] = value == true
+            if key == "Pillage" and not config.Pillage then clearPillageChange() end
             updateRun()
         end})
+        options[key] = NexusUI.Options[id]
     end
     local function dropdown(tab, id, key, title, values)
         options[key] = tab:AddDropdown(id, {Title = title, Values = values, Default = config[key], Callback = function(value)
@@ -2099,11 +2157,12 @@ do
             end
         end
     end
-    Tabs.Main:AddSection("Smart Steal", "Right")
-    toggle(Tabs.Main, "SmartAutoSteal", "SmartSteal", "[Smart] Auto Steal", "Uses the game Steal button when the carrier is in range and ball protection has ended")
+    local newSection = Tabs.Main:AddSection("New", "Left")
+    newSection.Frame.LayoutOrder = -1000
+    toggle(Tabs.Main, "ThiefUnrestrictedPillage", "Pillage", "Thief — Unrestricted Pillage [Client]", "Removes client style and rarity restrictions when acquiring an opponent's used ability")
+    toggle(Tabs.Main, "SmartAutoSteal", "SmartSteal", "Better Auto Steal", "Uses the game Steal button when the carrier is in range and ball protection has ended")
     options.StealRange = Tabs.Main:AddSlider("SmartStealRange", {Title = "Steal Range", Default = 14, Min = 5, Max = 17, Rounding = 1,
         Callback = function(value) config.StealRange = math.clamp(value, 5, 17) end})
-    dropdown(Tabs.Main, "SmartStealTiming", "StealTiming", "Steal Timing", {"Balanced", "Safe windows"})
     local styleTab = Tabs.Styles or Tabs.EventsFarm
     styleTab:AddSection("Skillchecks")
     toggle(styleTab, "GeniusAutoPerfectLockdown", "Genius", "Genius Auto Perfect Lockdown", "Completes each Lockdown circle once at the alignment point")
@@ -2127,6 +2186,7 @@ do
     end)
     RegisterUnloadCallback(function()
         alive = false
+        clearPillageChange()
         clearHooks()
         resetSteal()
         if heartbeat then heartbeat:Disconnect() end
