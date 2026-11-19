@@ -4274,7 +4274,7 @@ function NexusUI:CreateWindow(options)
             restoreFrame.ClipsDescendants = true
             windowGradient().Parent = restoreFrame
             local compactCorner = mainCorner:Clone()
-            if not IS_MOBILE then compactCorner.CornerRadius = UDim.new(0, 7) end
+            if not IS_MOBILE then compactCorner.CornerRadius = UDim.new(0, 3) end
             compactCorner.Parent = restoreFrame
             do
                 local stroke = mainStroke:Clone()
@@ -4286,7 +4286,7 @@ function NexusUI:CreateWindow(options)
             local artwork = createImageBackground(restoreFrame)
             if not IS_MOBILE then
                 local artworkCorner = artwork:FindFirstChildOfClass("UICorner")
-                if artworkCorner then artworkCorner.CornerRadius = UDim.new(0, 7) end
+                if artworkCorner then artworkCorner.CornerRadius = UDim.new(0, 3) end
             end
 
             if IS_MOBILE then
@@ -4311,18 +4311,51 @@ function NexusUI:CreateWindow(options)
                 local brand = new("TextLabel", {Name = "CompactBrand", Size = UDim2.new(1, -42, 0, 16), Position = UDim2.fromOffset(32, 5), BackgroundTransparency = 1, Text = "L I Q U I D A T I O N", FontFace = TEXT_FONT, TextSize = 8, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 4}, restoreFrame)
                 brand:SetAttribute("KeepFont", true)
                 bind(brand, "TextColor3", textColor)
-                local info = new("Frame", {Name = "DesktopCompactStats", Size = UDim2.new(1, -18, 0, 18), Position = UDim2.fromOffset(9, 24), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 3}, restoreFrame)
+                local function drawStatIcon(parent, kind)
+                    local drawing = new("Frame", {Name = kind == "PING" and "WifiIcon" or "SpeedometerIcon", Size = UDim2.fromOffset(14, 14), Position = UDim2.new(0, 0, 0.5, -7), BackgroundTransparency = 1, BorderSizePixel = 0, Active = false, ZIndex = 4}, parent)
+                    local function line(x1, y1, x2, y2, thickness)
+                        local dx, dy = x2 - x1, y2 - y1
+                        local segment = new("Frame", {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset((x1 + x2) * 0.5, (y1 + y2) * 0.5), Size = UDim2.fromOffset(math.sqrt(dx * dx + dy * dy) + 0.2, thickness or 1.2), Rotation = math.deg(math.atan2(dy, dx)), BackgroundColor3 = WHITE, BackgroundTransparency = 0.12, BorderSizePixel = 0, Active = false, ZIndex = 4}, drawing)
+                        corner(segment, 99)
+                    end
+                    local function arc(cx, cy, radius, first, last, count)
+                        for i = 1, count do
+                            local a = math.rad(first + (last - first) * (i - 1) / count)
+                            local b = math.rad(first + (last - first) * i / count)
+                            line(cx + math.cos(a) * radius, cy + math.sin(a) * radius, cx + math.cos(b) * radius, cy + math.sin(b) * radius)
+                        end
+                    end
+                    if kind == "PING" then
+                        arc(7, 11.5, 8, -140, -40, 12)
+                        arc(7, 11.5, 4.7, -140, -40, 10)
+                        local dot = new("Frame", {AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(2.2, 2.2), Position = UDim2.fromOffset(7, 11), BackgroundColor3 = WHITE, BorderSizePixel = 0, Active = false, ZIndex = 4}, drawing)
+                        corner(dot, 99)
+                    else
+                        arc(7, 8, 5.5, -210, 30, 20)
+                        line(7, 8, 9.7, 4.5, 1.3)
+                        local dot = new("Frame", {AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(2.2, 2.2), Position = UDim2.fromOffset(7, 8), BackgroundColor3 = WHITE, BorderSizePixel = 0, Active = false, ZIndex = 4}, drawing)
+                        corner(dot, 99)
+                    end
+                end
+                local info = new("Frame", {Name = "DesktopCompactStats", Size = UDim2.new(1, -18, 0, 16), Position = UDim2.fromOffset(9, 23), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 3}, restoreFrame)
                 local widths, offset = {0.42, 0.27, 0.31}, 0
                 for i, key in ipairs({"TIME", "FPS", "PING"}) do
                     local cell = new("Frame", {Name = key, Size = UDim2.new(widths[i], 0, 1, 0), Position = UDim2.new(offset, 0, 0, 0), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 3}, info)
                     offset += widths[i]
-                    local value = new("TextLabel", {Name = "Value", Size = UDim2.new(1, -8, 1, 0), BackgroundTransparency = 1, Text = compactValues[key], Font = Enum.Font.GothamMedium, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 4}, cell)
+                    local inset = key == "TIME" and 0 or 18
+                    if key ~= "TIME" then drawStatIcon(cell, key) end
+                    local value = new("TextLabel", {Name = "Value", Size = UDim2.new(1, -(8 + inset), 1, 0), Position = UDim2.fromOffset(inset, 0), BackgroundTransparency = 1, Text = compactValues[key], Font = Enum.Font.GothamMedium, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 4}, cell)
                     bind(value, "TextColor3", textColor)
                     compactStats[key] = value
                     if i < 3 then
                         bind(new("Frame", {AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -7, 0.5, 0), Size = UDim2.fromOffset(1, 10), BackgroundTransparency = 0.85, BorderSizePixel = 0, ZIndex = 3}, cell), "BackgroundColor3", textColor)
                     end
                 end
+                local bottomBar = new("Frame", {Name = "CompactBottomBar", AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.new(1, -18, 0, 2), Position = UDim2.new(0.5, 0, 1, -4), BackgroundColor3 = WHITE, BackgroundTransparency = 0.12, BorderSizePixel = 0, Active = false, ZIndex = 3}, restoreFrame)
+                corner(bottomBar, 1)
+                local barGlow = new("Frame", {Name = "CompactBottomGlow", AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.new(1, 4, 0, 6), Position = UDim2.fromScale(0.5, 0.5), BackgroundColor3 = WHITE, BackgroundTransparency = 0.82, BorderSizePixel = 0, Active = false, ZIndex = 3}, bottomBar)
+                corner(barGlow, 3)
+                new("UIGradient", {Rotation = 90, Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0.3), NumberSequenceKeypoint.new(1, 1)})}, barGlow)
                 updateCompactStats()
             end
 
