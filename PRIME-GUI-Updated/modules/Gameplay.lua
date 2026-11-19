@@ -558,18 +558,16 @@ end
 
 do
     local active
-    local radius = 17
-    local nutmegRadius = radius + 7.75
+    local radius = 60
 
     local function getRadius(character)
-        return character:GetAttribute("Nutmeg") and nutmegRadius or radius
+        return radius
     end
     local function stop()
         local run = active
         active = nil
         if not run then return end
         if run.Scan then run.Scan:Disconnect() end
-        if run.Radius then run.Radius:Destroy() end
         for _, connection in pairs(run.Animators) do
             connection:Disconnect()
         end
@@ -651,7 +649,7 @@ do
                 and not isStealName(track.Name) then return end
             if source ~= "AnimationPlayed" and track.TimePosition > 0.55 * math.max(1, track.Speed) then return end
             local now = os.clock()
-            if now - run.LastAttempt < 0.08 or userInputService:GetFocusedTextBox() then return end
+            if now - run.LastAttempt < 0.04 or userInputService:GetFocusedTextBox() then return end
             local gameValues = ReplicatedStorage:FindFirstChild("GameValues")
             local state = gameValues and gameValues:FindFirstChild("State")
             if not state or state.Value ~= "Playing" then return end
@@ -682,29 +680,14 @@ do
             if not ok or not fired then run.Seen[track] = nil end
         end
 
-        run.Scan = RunService.PreSimulation:Connect(function()
+        local function scan()
+
             if active ~= run then return end
             if ScriptUnloaded then stop(); return end
             if run.Busy then return end
             local current = {}
             local myCharacter = LocalPlayer.Character
             local root = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
-            if root ~= run.RadiusRoot then
-                if run.Radius then run.Radius:Destroy(); run.Radius = nil end
-                run.RadiusRoot = root
-                if root then
-                    local ring = Instance.new("CylinderHandleAdornment")
-                    ring.Name = "AutoDribbleRadius"
-                    ring.Adornee = root
-                    ring.Radius = radius
-                    ring.Height = 0.06
-                    ring.Color3 = Color3.fromRGB(75, 220, 255)
-                    ring.Transparency = 0.83
-                    ring.CFrame = CFrame.new(0, -2.75, 0) * CFrame.Angles(math.pi / 2, 0, 0)
-                    ring.Parent = root
-                    run.Radius = ring
-                end
-            end
             for _, player in ipairs(Players:GetPlayers()) do
                 if active ~= run then return end
                 local character = player.Character
@@ -714,7 +697,7 @@ do
                     current[animator] = true
                     if not run.Animators[animator] then
                         run.Animators[animator] = animator.AnimationPlayed:Connect(function(track)
-                            if run.Seen[track] and track.TimePosition <= 0.03 then run.Seen[track] = nil end
+                            run.Seen[track] = nil
                             react(player, character, track, "AnimationPlayed")
                         end)
                     end
@@ -732,12 +715,14 @@ do
                     run.Animators[animator] = nil
                 end
             end
-        end)
+        end
+        scan()
+        run.Scan = RunService.PreSimulation:Connect(scan)
     end
 
     Tabs.Main:AddToggle("AutoDribble", {
         Title = "Auto Dribble",
-        Description = "Dribbles at the start of an opponent steal, with extra range for Nutmeg",
+        Description = "Dribbles when an opponent starts a steal within 60 studs",
         Default = false,
         Callback = function(value)
             if value and not ScriptUnloaded then start() else stop() end
@@ -895,18 +880,13 @@ Tabs.Main:AddToggle("NoRagdoll", {
 })
 
 
-Tabs.Main:AddToggle("AutoBlock", {
-    Title = "Auto Block",
-    Description = "auto ball block",
-    Default = false,
-    Callback = function(Value)
-        AutoBlockEnabled = Value
-        if Value then
-            local AUTO_BLOCK_RANGE = 15.5
-            local COOLDOWN = 0.5
-            local lastBlockTime = 0
-            local isBlocking = false
-            local blockedAnimationIds = {
+do
+    local modes = {Base = false, NoAnimation = false, NoJump = false}
+    local watched = {}
+    local lastAttempt, quietUntil = -math.huge, 0
+    local service, network, ballController
+    local loading = false
+    local shots = {
 
                 "rbxassetid://111975541117141",
                 "rbxassetid://76228113424835",
@@ -951,73 +931,111 @@ Tabs.Main:AddToggle("AutoBlock", {
                 "rbxassetid://139765328348537"
 
             }
-
-            
-            local function Jump()
-                local char = LocalPlayer.Character
-                if not char then return false end
-                local humanoid = char:FindFirstChildOfClass("Humanoid")
-                if not humanoid then return false end
-                if not isBlocking and humanoid.FloorMaterial ~= Enum.Material.Air and tick() - lastBlockTime > COOLDOWN then
-                    isBlocking = true
-                    humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-                    lastBlockTime = tick()
-                    task.delay(0.2, function() isBlocking = false end)
-                    return true
-                end
-            end
-
-            local function HasBlockingAnimation(player)
-                local char = player and player.Character
-                if not char then return false end
-                local humanoid = char:FindFirstChildOfClass("Humanoid")
-                if not humanoid then return false end
-                local animator = humanoid:FindFirstChildOfClass("Animator")
-                if not animator then return false end
-
-                for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-                    if track and track.Animation then
-                        local animationId = track.Animation.AnimationId
-                        for _, blockedId in ipairs(blockedAnimationIds) do
-                            if animationId == blockedId then
-                                return true
-                            end
-                        end
-                    end
-                end
-
-                return false
-            end
-            
-            AutoBlockConnection = TrackScriptConnection(RunService.Heartbeat:Connect(function()
-                if not AutoBlockEnabled then return end
-                local ball = GetCurrentBall()
-                if not ball then return end
-                local char = LocalPlayer.Character
-                if not char then return end
-                local root = char:FindFirstChild("HumanoidRootPart")
-                if not root then return end
-
-                for _, p in ipairs(Players:GetPlayers()) do
-                    if p ~= LocalPlayer and p.Team ~= LocalPlayer.Team and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                        local dist = (p.Character.HumanoidRootPart.Position - root.Position).Magnitude
-                        local blockRange = NexusUI.State.ExtendedBlockRange
-                        local maximum = blockRange and blockRange.Enabled and math.max(AUTO_BLOCK_RANGE, blockRange.Distance) or AUTO_BLOCK_RANGE
-                        if dist <= maximum and HasBlockingAnimation(p) then
-                            Jump()
-                            return
-                        end
-                    end
-                end
-            end))
+    local shotIds = {}
+    for _, id in ipairs(shots) do shotIds[id:match("%d+")] = true end
+    local blockIds = { ["85085420170795"] = true, ["127473079740665"] = true, ["76620093044685"] = true }
+    local function stopAnimation(track)
+        local animation = track.Animation
+        local id = animation and animation.AnimationId:match("%d+")
+        if modes.NoAnimation and os.clock() <= quietUntil and id and blockIds[id] then track:Stop(0.03) end
+    end
+    local function clear()
+        if AutoBlockConnection then AutoBlockConnection:Disconnect(); AutoBlockConnection = nil end
+        for _, connection in pairs(watched) do connection:Disconnect() end
+        table.clear(watched)
+        quietUntil = 0
+    end
+    local function prepare()
+        if loading or service then return end
+        loading = true
+        task.spawn(function()
+            local ok, s, n, b = pcall(function()
+                local knit = require(ReplicatedStorage.Packages.Knit)
+                return knit.GetService("BallService"), knit.GetController("Network"), knit.GetController("BallController")
+            end)
+            if ok then service, network, ballController = s, n, b end
+            loading = false
+        end)
+    end
+    local function attempt()
+        if not AutoBlockEnabled or ScriptUnloaded or os.clock() - lastAttempt < 0.5 then return end
+        local char = LocalPlayer.Character
+        local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+        local ragdoll = char and char:FindFirstChild("IsRagdoll")
+        if not humanoid or humanoid.Health <= 0 or humanoid.Sit or ragdoll and ragdoll.Value then return end
+        if not LocalPlayer.Team or LocalPlayer.Team.Name == "Visitor" then return end
+        local gameValues = ReplicatedStorage:FindFirstChild("GameValues")
+        local scoring = gameValues and gameValues:FindFirstChild("Scoring")
+        local tip = gameValues and gameValues:FindFirstChild("TipOff")
+        if scoring and scoring.Value or tip and tip.Value then return end
+        if modes.NoJump then
+            if not service or not network or not ballController then prepare(); return end
+            if network.CharValues.HasBall or ballController:NoAction() then return end
+        elseif humanoid.FloorMaterial == Enum.Material.Air then return end
+        lastAttempt = os.clock()
+        quietUntil = lastAttempt + 0.5
+        if modes.NoJump then
+            service.Block:Fire()
+            network.CharValues.Blocked = tick()
         else
-            if AutoBlockConnection then
-                AutoBlockConnection:Disconnect()
-                AutoBlockConnection = nil
-            end
+            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+        if modes.NoAnimation then
+            local animator = humanoid:FindFirstChildOfClass("Animator")
+            if animator then for _, track in ipairs(animator:GetPlayingAnimationTracks()) do stopAnimation(track) end end
         end
     end
-})
+    local function react(player, character, track)
+        if player == LocalPlayer then stopAnimation(track); return end
+        if player.Character ~= character or not player.Team or player.Team == LocalPlayer.Team or player.Team.Name == "Visitor" then return end
+        local animation = track.Animation
+        local id = animation and animation.AnimationId:match("%d+")
+        if not id or not shotIds[id] then return end
+        local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        local other = character:FindFirstChild("HumanoidRootPart")
+        if root and other and (root.Position - other.Position).Magnitude <= 25 and GetCurrentBall() then attempt() end
+    end
+    local function scan()
+        if not AutoBlockEnabled or ScriptUnloaded then return end
+        local current = {}
+        for _, player in ipairs(Players:GetPlayers()) do
+            local character = player.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
+            if animator and humanoid.Health > 0 then
+                current[animator] = true
+                if not watched[animator] then
+                    watched[animator] = animator.AnimationPlayed:Connect(function(track) react(player, character, track) end)
+                end
+                for _, track in ipairs(animator:GetPlayingAnimationTracks()) do if track.IsPlaying then react(player, character, track) end end
+            end
+        end
+        for animator, connection in pairs(watched) do
+            if not current[animator] then connection:Disconnect(); watched[animator] = nil end
+        end
+    end
+    local function refresh()
+        clear()
+        AutoBlockEnabled = not ScriptUnloaded and (modes.Base or modes.NoAnimation or modes.NoJump)
+        if not AutoBlockEnabled then return end
+        if modes.NoJump then prepare() end
+        scan()
+        AutoBlockConnection = RunService.PreSimulation:Connect(scan)
+    end
+    local function setMode(mode, value)
+        if modes[mode] == nil then return end
+        modes[mode] = value == true
+        refresh()
+    end
+    NexusUI.State.SetAutoBlockMode = setMode
+    Tabs.Main:AddToggle("AutoBlock", {Title = "Auto Block", Description = "Automatically blocks nearby shots within 25 studs.", Default = false,
+        Callback = function(value) setMode("Base", value) end})
+    RegisterUnloadCallback(function()
+        AutoBlockEnabled = false
+        clear()
+        if NexusUI.State.SetAutoBlockMode == setMode then NexusUI.State.SetAutoBlockMode = nil end
+    end)
+end
 
 do
     local pass = {Speed = 240, Enabled = true, Alive = true, LastOwn = -10, LastDirected = -10}
