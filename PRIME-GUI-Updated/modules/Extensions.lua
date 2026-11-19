@@ -2166,8 +2166,7 @@ do
     local newSection = Tabs.Main:AddSection("New", "Left")
     newSection.Frame.LayoutOrder = -1000
     for _, entry in ipairs({
-        {"AutoBlockNoAnimation", "NoAnimation", "AutoBlock - No Animation", "Automatically blocks nearby shots without showing your block animation."},
-        {"AutoBlockNoJump", "NoJump", "[Experimental] AutoBlock - No Jump", "Attempts to block nearby shots without jumping."},
+        {"AutoBlockNoAnimation", "NoAnimation", "AutoBlock - No Animation", "Automatically blocks nearby shots and hides your block animation locally."},
     }) do
         local mode = entry[2]
         Tabs.Main:AddToggle(entry[1], {Title = entry[3], Description = entry[4], Default = false, Callback = function(value)
